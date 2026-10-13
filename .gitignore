@@ -1,0 +1,5 @@
+node_modules/
+records/
+browser-profile/
+*.log
+conversation.json

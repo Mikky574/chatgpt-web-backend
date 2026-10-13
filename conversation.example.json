@@ -1,0 +1,6 @@
+{
+  "conversation_url": null,
+  "entry_url": "https://chatgpt.com/",
+  "cdp_endpoint": "http://127.0.0.1:9222",
+  "records_directory": "records"
+}
