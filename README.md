@@ -60,6 +60,19 @@ Invoke-RestMethod 'http://127.0.0.1:8787/ask' -Method Post -ContentType 'applica
 
 内部项目需要源码保密时，参见 [内部模型与外部 GPT 协作设计](skills/chatgpt-browser-bridge/references/internal-mode.md)。当前后端仅提供网页调用能力，尚未实现设计中的强制披露审批、隔离与版本协调，不可直接作为保密网关。
 
-## 验证
+## GPT 主控 + DeepSeek 原生文本执行
+
+密钥由你自行填写到项目 `.secrets/deepseek-api-key.txt`（一行纯密钥），不要发进聊天。程序读取使用，默认不输出；文件已排除 Git。调用的是 DeepSeek 云 API，基础版只处理公开/合成目标，不读取或执行你的项目代码。
+
+启动网页后端后另开一个终端：
+
+```powershell
+npm run coordinator
+node run-session.mjs "设计一个公开的购物车金额校验方案和测试用例，DeepSeek完成文本方案后由GPT验收"
+```
+
+协调器监听 127.0.0.1:8788。`GET /deepseek/status` 看密钥是否已配置；`POST /deepseek/ask` 直接调用；`POST /sessions` 创建会话，`POST /sessions/{id}/step` 推进一轮，`GET /sessions/{id}` 看结果，`POST /sessions/{id}/reply` 回复主控问题。默认最多4轮，等待用户、错误或完成时停止。双方上下文独立保存，具体接口和恢复方法见 [基础协调器说明](skills/chatgpt-browser-bridge/references/native-coordinator.md)。
+
+## 测试
 
 `npm test` 覆盖请求持久化、幂等、并发串行、超时恢复、上下文身份、待确认回复、部分回答轮询和输入校验。HTTP 测试使用替代浏览器实现；设置 `$env:CDP_TEST='1'` 再运行 `npm test` 会另外在已连接 Chrome 的临时本地页面验证文件下载字节，不向 ChatGPT 提交问题。

@@ -13,6 +13,8 @@ Windows 上先检查 http://127.0.0.1:9222/json/version。若已返回 webSocket
 
 ## 上下文、返回值与文件
 
+用户要求原生 GPT 与 DeepSeek 双模型协作时，读 [基础协调器](references/native-coordinator.md)，使用 8788 的会话接口。密钥由用户自行填入本地 .secrets/deepseek-api-key.txt，不读取或打印该文件，不将其带入对话；仅通过 configured 状态和真实调用结果检查。当前执行侧只有文本推理，无工位工具。
+
 用于内部项目协作时，先读 [内部模型与外部 GPT 边界](references/internal-mode.md)。用户要求源码只由内部模型读取：不得发送代码片段、原始日志、私有文件或整个内部聊天记录，改为经披露检查的需求与测试摘要。摘要也可能敏感，不能因“内部模型已总结”就自动放行。现有后端没有强制出站审查或环境隔离，不得把这份 skill 当作已部署的保密网关。不同项目显式指定各自 conversation_url；外部建议在内部复核后才进入实现和测试。
 
 调用前读 [HTTP 接口与状态约定](references/http-api.md)。默认 continue 复用默认对话；用户要求独立上下文时显式 new。继续某个新建对话时传回其 conversation_url 并使用 continue。每轮一个新 request_id；重试同一次提问保持原 ID。新建对话不覆盖默认对话，不能把新对话的回复并入旧对话上下文。

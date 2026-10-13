@@ -1,0 +1,10 @@
+{
+  "deepseek_model": "deepseek-flash",
+  "deepseek_thinking": false,
+  "deepseek_key_file": ".secrets/deepseek-api-key.txt",
+  "deepseek_timeout_ms": 120000,
+  "deepseek_max_tokens": 4096,
+  "gpt_backend": "http://127.0.0.1:8787",
+  "gpt_timeout_ms": 120000,
+  "max_rounds": 4
+}
