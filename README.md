@@ -58,6 +58,8 @@ Invoke-RestMethod 'http://127.0.0.1:8787/ask' -Method Post -ContentType 'applica
 
 技能入口在 skills/chatgpt-browser-bridge/SKILL.md；本地 Agent 可加载它，再用 HTTP 工具调用此服务。纯推理模型需要宿主程序提供工具执行能力。
 
+内部项目需要源码保密时，参见 [内部模型与外部 GPT 协作设计](skills/chatgpt-browser-bridge/references/internal-mode.md)。当前后端仅提供网页调用能力，尚未实现设计中的强制披露审批、隔离与版本协调，不可直接作为保密网关。
+
 ## 验证
 
 `npm test` 覆盖请求持久化、幂等、并发串行、超时恢复、上下文身份、待确认回复、部分回答轮询和输入校验。HTTP 测试使用替代浏览器实现；设置 `$env:CDP_TEST='1'` 再运行 `npm test` 会另外在已连接 Chrome 的临时本地页面验证文件下载字节，不向 ChatGPT 提交问题。
