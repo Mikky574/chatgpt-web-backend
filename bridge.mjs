@@ -9,6 +9,11 @@ export function classifyReply(answer) {
 
 // Labels of explicit expand/collapse controls the page renders inside a bubble.
 export const COLLAPSE_CONTROL = /^(收起|展开|显示更多|显示更少|show (?:less|more))$/i;
+export function classifyGenerationFailure(text) {
+  if (/cloudflare_challenge|cf-chl-|verify you are human|验证您是真人|人机验证/i.test(text)) return 'browser_verification';
+  if (/too many requests|rate limit|达到.*限额|请求过多/i.test(text)) return 'rate_limited';
+  return 'generation_failed';
+}
 
 // A submission is matched to the rendered user bubble by exact text. The page
 // injects an expand/collapse button whose label ("收起"/"Show less") would
@@ -25,7 +30,7 @@ export function findUserMessageIndex(messages, question, startIndex = 0) {
 // Mirrors the in-page reader used by messages(). Only explicit collapse/expand
 // controls are hidden; the author's own prose (including a literal "收起") stays.
 export function userMessageText(node, togglePattern) {
-  const controls = [...node.querySelectorAll('button, [role="button"]')].filter(control => togglePattern.test((((control.getAttribute && control.getAttribute('aria-label')) || control.innerText) || '').trim()));
+  const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => togglePattern.test((((control.getAttribute && control.getAttribute('aria-label')) || control.innerText) || '').trim()) || (control.getAttribute?.('aria-hidden') === 'true' && control.innerText.trim() === '…'));
   if (!controls.length) return node.innerText;
   const saved = controls.map(control => control.style.display);
   controls.forEach(control => { control.style.display = 'none'; });
@@ -95,7 +100,7 @@ export class BrowserBridge {
       return current.evaluateAll((nodes, pattern) => {
         const toggle = new RegExp(pattern, 'i');
         const text = node => {
-          const controls = [...node.querySelectorAll('button, [role="button"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()));
+          const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()) || (control.getAttribute('aria-hidden') === 'true' && control.innerText.trim() === '…'));
           if (!controls.length) return node.innerText;
           const saved = controls.map(control => control.style.display);
           controls.forEach(control => { control.style.display = 'none'; });
@@ -148,6 +153,29 @@ export class BrowserBridge {
     const page = await this.page(record);
     return this.wait(page, record, persist, timeoutMs);
   }
+  async retry(record, persist, timeoutMs) {
+    if (record.generation_complete) return record;
+    if (!record.conversation_url || !record.user_message_id) throw new BridgeError('重试必须先通过 recover 锚定原问题，不能重发');
+    if ((record.generation_retry_count || 0) >= 2) throw new BridgeError('已达到原问题的两次生成重试上限');
+    const page = await this.page(record);
+    const messages = await this.messages(page);
+    const index = messages.findIndex(m=>m.role==='user' && m.message_id===record.user_message_id && m.text.trim()===record.question.trim());
+    if(index<0 || messages.slice(index+1).some(m=>m.role==='user')) throw new BridgeError('原问题未加载或后续已有新问题，不能安全重试');
+    const alerts=await page.locator('[role="alert"]:visible').evaluateAll(nodes=>nodes.map(n=>n.innerText).join('\n'));
+    const alertKind=classifyGenerationFailure(alerts);
+    if(alertKind!=='generation_failed') throw new BridgeError('需要人工处理网页验证或等待限流，不自动重试','awaiting_user_input',{category:alertKind});
+    const turn = await this.turn(page, record);
+    const kind = classifyGenerationFailure(await turn.innerText());
+    if(kind!=='generation_failed') throw new BridgeError('需要人工处理网页验证或等待限流，不自动重试', 'awaiting_user_input', {category:kind});
+    const button = turn.getByRole('button',{name:/^(重试|Retry|Try again)$/i}).filter({visible:true});
+    if(await button.count()!==1) throw new BridgeError('未找到唯一的本轮重试按钮');
+    record.generation_retry_count = (record.generation_retry_count || 0)+1;
+    record.retry_attempted_at = new Date().toISOString();
+    await persist(record); // Persist before clicking: uncertain clicks must not retry automatically.
+    await button.click({timeout:5000});
+    record.answer='';record.status='waiting';record.generation_complete=false;
+    return this.wait(page,record,persist,timeoutMs);
+  }
   async wait(page, record, persist, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
     let previous = '', stable = 0;
@@ -168,6 +196,27 @@ export class BrowserBridge {
       const userIndex = findUserMessageIndex(appended, record.question);
       if (userIndex >= 0) {
         record.user_message_id ||= appended[userIndex].message_id;
+        const failureUI = await page.locator('main:visible').last().evaluateAll((nodes,id)=>{
+          const turns=nodes.flatMap(n=>[...n.querySelectorAll('[data-talvt-turn-state]')]);
+          const turn=turns.find(n=>[...n.querySelectorAll('[data-chatgpt-search-message-ids]')].some(e=>(e.getAttribute('data-chatgpt-search-message-ids')||'').split(' ').includes(id)));
+          if(!turn)return {text:'',retry:false};
+          return {text:turn.innerText,retry:[...turn.querySelectorAll('button')].some(b=>b.getClientRects().length && /^(重试|Retry|Try again)$/i.test((b.getAttribute('aria-label')||b.innerText).trim()))};
+        },record.user_message_id);
+        const alerts=await page.locator('[role="alert"]:visible').evaluateAll(nodes=>nodes.map(n=>n.innerText).join('\n'));
+        const failure = classifyGenerationFailure((failureUI.text || '')+'\n'+alerts);
+        if (failure === 'browser_verification' || failure === 'rate_limited') {
+          record.status = 'awaiting_user_input';record.generation_complete=false;record.generation_status='blocked';record.incomplete=true;
+          record.user_action={required:true,kind:failure,source:'page_error_hint',certainty:'possible'};
+          record.retry={allowed:false,category:failure,requires_user:true};
+          record.error=failure==='browser_verification'?'网页要求验证，请人工处理后恢复读取':'网页请求受限，请等待限制恢复后再读取';
+          await persist(record);return record;
+        }
+        if(failureUI.retry) {
+          record.status='blocked';record.generation_complete=false;record.generation_status='failed';record.incomplete=true;
+          record.retry={allowed:(record.generation_retry_count||0)<2,category:'generation_failed',attempts:record.generation_retry_count||0,max_attempts:2};
+          record.error='本轮生成失败；可对原任务显式 retry，勿重新提交问题';
+          await persist(record);return record;
+        }
         const afterQuestion = appended.slice(userIndex + 1);
         const nextUser = afterQuestion.findIndex(m => m.role === 'user');
         if (nextUser >= 0) throw new BridgeError('本次问题后出现其他用户消息，停止读取以避免混淆');

@@ -63,6 +63,8 @@ export async function createService({ directory = root, bridge: injected } = {})
       if (input.conversation_url && !/^https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+$/.test(input.conversation_url)) return send(400, { error: 'invalid_conversation_url' });
       if (mode === 'new' && input.conversation_url) return send(400, { error: 'new mode cannot specify conversation_url' });
       const timeout = input.timeout_ms ?? 120000;
+      if(input.retry_generation !== undefined && typeof input.retry_generation !== 'boolean') return send(400,{error:'retry_generation must be boolean'});
+      if(input.retry_generation && url.pathname!=='/recover') return send(400,{error:'retry_generation is only accepted by recover'});
       if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) return send(400, { error: 'timeout_ms must be 1000..600000' });
       if (busy) return send(409, { error: 'busy' });
       busy = true;
@@ -113,7 +115,7 @@ export async function createService({ directory = root, bridge: injected } = {})
       if (url.pathname === '/recover' && record.before_count === undefined) return send(409, { error: 'Request was never submitted; use a new request_id' });
       try {
         await persist(record);
-        record = url.pathname === '/ask' ? await bridge.ask(record, persist, timeout) : await bridge.recover(record, persist, timeout);
+        record = url.pathname === '/ask' ? await bridge.ask(record, persist, timeout) : input.retry_generation ? await bridge.retry(record,persist,timeout) : await bridge.recover(record, persist, timeout);
       } catch (e) { record.status = e.status || 'failed'; record.error = e.message; record.incomplete = true; }
       finally { await persist(record); }
       return send(['completed', 'awaiting_user_input'].includes(record.status) ? 200 : record.status === 'timeout' ? 504 : 503, record);
