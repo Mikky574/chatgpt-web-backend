@@ -136,16 +136,40 @@ export class BrowserBridge {
     if (!await input.isVisible()) throw new BridgeError('未找到输入框：请检查登录、验证页面或页面结构变化');
     if (await page.locator('[data-talvt-turn-state]:not([data-talvt-turn-state="complete"])').count() || await page.locator('button[data-testid="stop-button"]').isVisible()) throw new BridgeError('当前对话正在生成，请稍后重试');
     record.before_count = (await this.messages(page)).length;
-    // Persist submission intent before pressing Enter; recovery never blindly resends.
+    // Persist intent before any submit action; uncertain submissions are never resent.
     record.status = 'submitting';
     await persist(record);
     await input.fill(record.question);
-    await input.press('Enter');
+    await this.submit(page,input,record,persist);
     record.status = 'waiting';
     record.generation_status = 'generating';
     record.generation_complete = false;
     await persist(record);
     return this.wait(page, record, persist, timeoutMs);
+  }
+  async submit(page,input,record,persist) {
+    const send=page.locator('button[data-testid="send-button"]:visible, button[aria-label="发送"]:visible, button[aria-label="Send prompt"]:visible, button[aria-label="Send message"]:visible');
+    // Prefer the explicit control; Enter can insert a newline depending on composer settings.
+    if(await send.count()===1) {
+      try { await send.waitFor({state:'visible',timeout:5000});await send.click({timeout:10000}); }
+      catch { throw new BridgeError('发送按钮未能确认点击；请检查原请求，勿自动重发'); }
+    }else if(await send.count()>1) throw new BridgeError('找到多个发送按钮，无法安全提交');
+    else await input.press('Enter');
+    const deadline=Date.now()+10000;
+    while(Date.now()<deadline) {
+      await this.pin(page,record,persist);
+      const messages=await this.messages(page);
+      const index=findUserMessageIndex(messages,record.question,record.before_count);
+      if(index>=0) {
+        record.user_message_id=messages[index].message_id;
+        record.submission_confirmed=true;
+        await persist(record);return;
+      }
+      await new Promise(resolve=>setTimeout(resolve,250));
+    }
+    record.submission_confirmed=false;
+    record.generation_status='submission_unconfirmed';
+    throw new BridgeError('未观察到本次用户消息：发送尚未确认。请检查网页输入框及提示；保留原请求ID，勿自动重发');
   }
   async recover(record, persist, timeoutMs) {
     record.conversation_url ||= this.config.conversation_url;

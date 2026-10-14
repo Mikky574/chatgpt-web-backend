@@ -64,6 +64,8 @@ Invoke-RestMethod 'http://127.0.0.1:8787/ask' -Method Post -ContentType 'applica
 
 ## ZCode 执行 + GPT 决策
 
+消息发送、登录复用、固定对话与排错链路见 [详细链路说明](docs/message-delivery-chain.md)。
+
 一键启动：`start.bat`；关闭本脚本启动的服务：`stop.bat`。安装、技能加载及长期任务恢复见 [安装说明](docs/installation.md)。`task-controller.mjs` 按任务编号保存并自动复用对话地址。
 
 ZCode 管理自己的模型配置与凭据，本项目只提供 GPT 网页后端和摘要调用脚本，不读取执行模型的密钥。独立 DeepSeek API 客户端及 8788 协调器已移除。
