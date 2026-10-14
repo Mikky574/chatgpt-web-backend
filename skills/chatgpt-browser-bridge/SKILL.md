@@ -13,7 +13,7 @@ Windows 上先检查 http://127.0.0.1:9222/json/version。若已返回 webSocket
 
 ## 上下文、返回值与文件
 
-用户要求原生 GPT 与 DeepSeek 双模型协作时，读 [基础协调器](references/native-coordinator.md)，使用 8788 的会话接口。密钥由用户自行填入本地 .secrets/deepseek-api-key.txt，不读取或打印该文件，不将其带入对话；仅通过 configured 状态和真实调用结果检查。当前执行侧只有文本推理，无工位工具。
+ZCode 作为执行侧时，由 ZCode 管理模型连接和凭据。本项目不读取执行侧 API Key，也不提供 8788 独立模型协调器。在项目根目录使用 consult-gpt.mjs 发送指定摘要；完整示例见 docs/zcode-gpt-example.md。首次 new，后续 continue 显式传 conversation_url，同一次未知提交用 recover 保留 request_id。
 
 用于内部项目协作时，先读 [内部模型与外部 GPT 边界](references/internal-mode.md)。用户要求源码只由内部模型读取：不得发送代码片段、原始日志、私有文件或整个内部聊天记录，改为经披露检查的需求与测试摘要。摘要也可能敏感，不能因“内部模型已总结”就自动放行。现有后端没有强制出站审查或环境隔离，不得把这份 skill 当作已部署的保密网关。不同项目显式指定各自 conversation_url；外部建议在内部复核后才进入实现和测试。
 

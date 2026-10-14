@@ -1,0 +1,8 @@
+{
+  "controller": {
+    "command": "node",
+    "script": "consult-gpt.mjs",
+    "backend": "http://127.0.0.1:8787"
+  },
+  "max_rounds": 3
+}
