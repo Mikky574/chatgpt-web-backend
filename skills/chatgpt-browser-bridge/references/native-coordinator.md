@@ -2,6 +2,8 @@
 
 已实现：coordinator.mjs（127.0.0.1:8788）、deepseek.mjs、run-session.mjs。不接 AI 工位、不读取项目文件、不执行 shell 或测试。GPT 网页是规划侧，DeepSeek 官方云 API 是文本执行侧。本版仅用于公开/合成目标，不作为内部代码安全网关。
 
+本组合只是框架示例。adapters.mjs 分离 planner.request 与 worker.status/complete，createCoordinator 支持注入其他规划与执行适配器；当前内置 chatgpt-web 和 deepseek-api。未来 ZCode 或内网模型需新增适配器，不能仅改 provider 字符串就自动获得支持。用户当前要求只搭建框架和文档，暂停真实密钥及付费联调。
+
 ## 密钥与启动
 
 用户将 DeepSeek 密钥自行写入项目 `.secrets/deepseek-api-key.txt`，一行纯密钥，不带引号。该文件与 .secrets 目录被 Git 忽略。不要用文件读取、终端输出、截图或搜索去查看用户密钥，也不要让用户把密钥发进对话。调用程序必须读取密钥，但不输出 Authorization、上游错误正文或密钥内容；模型上下文不包含它。程序访问权限和其他本机进程读取权限仍由操作系统控制，本实现不是密钥保险库。

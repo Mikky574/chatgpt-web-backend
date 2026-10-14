@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { DeepSeekClient } from './deepseek.mjs';
+import { createPlannerAdapter, createWorkerAdapter } from './adapters.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
@@ -19,7 +19,7 @@ async function save(file, value) {
   await writeFile(file + '.tmp', JSON.stringify(value, null, 2), 'utf8');
   await rename(file + '.tmp', file);
 }
-export async function createCoordinator({ directory = root, deepseek: injected, gpt: injectedGpt } = {}) {
+export async function createCoordinator({ directory = root, deepseek: injected, gpt: injectedGpt, planner: injectedPlanner, worker: injectedWorker } = {}) {
   const configFile = path.join(directory, 'coordinator.json');
   let config;
   try { config = JSON.parse(await readFile(configFile, 'utf8')); }
@@ -28,18 +28,12 @@ export async function createCoordinator({ directory = root, deepseek: injected, 
   if (backend.protocol !== 'http:' || backend.hostname !== '127.0.0.1') throw new Error('GPT_BACKEND_MUST_BE_LOOPBACK');
   const sessionsDir = path.join(directory, 'records', 'sessions');
   await mkdir(sessionsDir, { recursive: true });
-  const deepseek = injected || new DeepSeekClient(config, directory);
+  const deepseek = injectedWorker || injected || createWorkerAdapter(config, directory);
   const locks = new Set();
   const read = async id => { try { return JSON.parse(await readFile(path.join(sessionsDir, id + '.json'), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
   const persist = async session => { session.updated_at = new Date().toISOString(); await save(path.join(sessionsDir, session.session_id + '.json'), session); };
-  const gpt = injectedGpt || (async (route, body) => {
-    let response;
-    try { response = await fetch(new URL(route, backend), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(config.gpt_timeout_ms + 20000) }); }
-    catch { throw new Error('GPT_BACKEND_NETWORK_OR_TIMEOUT: 保留请求 ID，稍后恢复'); }
-    const result = await response.json();
-    if (!result.generation_complete) throw new Error(`GPT_NOT_COMPLETE_${result.status || response.status}`);
-    return result;
-  });
+  const planner = injectedPlanner || (injectedGpt ? { request: injectedGpt } : createPlannerAdapter(config));
+  const gpt = (route, body) => planner.request(route, body);
   async function step(session) {
     if (['finished', 'awaiting_user'].includes(session.status)) return session;
     if (session.round >= session.max_rounds && session.phase !== 'execute') { session.status = 'round_limit'; await persist(session); return session; }

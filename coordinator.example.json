@@ -1,4 +1,6 @@
 {
+  "planner_provider": "chatgpt-web",
+  "worker_provider": "deepseek-api",
   "deepseek_model": "deepseek-flash",
   "deepseek_thinking": false,
   "deepseek_key_file": ".secrets/deepseek-api-key.txt",

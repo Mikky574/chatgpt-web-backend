@@ -60,6 +60,8 @@ Invoke-RestMethod 'http://127.0.0.1:8787/ask' -Method Post -ContentType 'applica
 
 内部项目需要源码保密时，参见 [内部模型与外部 GPT 协作设计](skills/chatgpt-browser-bridge/references/internal-mode.md)。当前后端仅提供网页调用能力，尚未实现设计中的强制披露审批、隔离与版本协调，不可直接作为保密网关。
 
+框架与使用注意事项统一记录在 [docs/framework.md](docs/framework.md)。GPT 加 DeepSeek 是可替换适配器的示例，用户当前要求暂不配置密钥或做真实联调。
+
 ## GPT 主控 + DeepSeek 原生文本执行
 
 密钥由你自行填写到项目 `.secrets/deepseek-api-key.txt`（一行纯密钥），不要发进聊天。程序读取使用，默认不输出；文件已排除 Git。调用的是 DeepSeek 云 API，基础版只处理公开/合成目标，不读取或执行你的项目代码。
