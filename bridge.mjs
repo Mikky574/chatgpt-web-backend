@@ -7,6 +7,39 @@ export function classifyReply(answer) {
   return { required: !!prompt, kind: prompt ? (/确认|是否|confirm|shall i/i.test(prompt) ? 'confirmation' : 'clarification') : 'none', prompt: prompt || null, source: 'text_heuristic', certainty: prompt ? 'possible' : 'unknown' };
 }
 
+// Labels of explicit expand/collapse controls the page renders inside a bubble.
+export const COLLAPSE_CONTROL = /^(收起|展开|显示更多|显示更少|show (?:less|more))$/i;
+
+// A submission is matched to the rendered user bubble by exact text. The page
+// injects an expand/collapse button whose label ("收起"/"Show less") would
+// otherwise be read as body text, so that button is hidden before reading.
+export function findUserMessageIndex(messages, question, startIndex = 0) {
+  const sent = (question || '').trim();
+  if (!sent) return -1;
+  for (let index = Math.max(0, startIndex); index < messages.length; index++) {
+    if (messages[index].role === 'user' && (messages[index].text || '').trim() === sent) return index;
+  }
+  return -1;
+}
+
+// Mirrors the in-page reader used by messages(). Only explicit collapse/expand
+// controls are hidden; the author's own prose (including a literal "收起") stays.
+export function userMessageText(node, togglePattern) {
+  const controls = [...node.querySelectorAll('button, [role="button"]')].filter(control => togglePattern.test((((control.getAttribute && control.getAttribute('aria-label')) || control.innerText) || '').trim()));
+  if (!controls.length) return node.innerText;
+  const saved = controls.map(control => control.style.display);
+  controls.forEach(control => { control.style.display = 'none'; });
+  const text = node.innerText;
+  controls.forEach((control, index) => { control.style.display = saved[index]; });
+  return text;
+}
+
+// A completed turn needs an explicit signal: the turn-state attribute or the
+// same-turn completion control. A quiet stall is never treated as completion.
+export function isTurnComplete({ answer, generating, turnComplete = false, hasLegacyControls = false, stable = 0, conversationUrl = null }) {
+  return !!(answer && !generating && conversationUrl && stable >= 2 && (turnComplete || hasLegacyControls));
+}
+
 export class BridgeError extends Error {
   constructor(message, status = 'blocked', diagnostics = null) { super(message); this.status = status; this.diagnostics = diagnostics; }
 }
@@ -59,12 +92,24 @@ export class BrowserBridge {
   async messages(page) {
     const current = page.locator('main:visible').last().locator('[data-user-message-bubble], [data-markdown-text-style="assistant-message"]');
     if (await current.count()) {
-      return current.evaluateAll(nodes => nodes.map(n => ({
-        role: n.hasAttribute('data-user-message-bubble') ? 'user' : 'assistant',
-        text: n.innerText,
-        complete: n.closest('[data-talvt-turn-state]')?.getAttribute('data-talvt-turn-state') === 'complete',
-        message_id: n.closest('[data-chatgpt-search-message-ids]')?.getAttribute('data-chatgpt-search-message-ids')?.split(' ')[0] || null
-      })));
+      return current.evaluateAll((nodes, pattern) => {
+        const toggle = new RegExp(pattern, 'i');
+        const text = node => {
+          const controls = [...node.querySelectorAll('button, [role="button"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()));
+          if (!controls.length) return node.innerText;
+          const saved = controls.map(control => control.style.display);
+          controls.forEach(control => { control.style.display = 'none'; });
+          const value = node.innerText;
+          controls.forEach((control, index) => { control.style.display = saved[index]; });
+          return value;
+        };
+        return nodes.map(n => ({
+          role: n.hasAttribute('data-user-message-bubble') ? 'user' : 'assistant',
+          text: text(n),
+          complete: n.closest('[data-talvt-turn-state]')?.getAttribute('data-talvt-turn-state') === 'complete',
+          message_id: n.closest('[data-chatgpt-search-message-ids]')?.getAttribute('data-chatgpt-search-message-ids')?.split(' ')[0] || null
+        }));
+      }, COLLAPSE_CONTROL.source);
     }
     return page.locator('[data-message-author-role]').evaluateAll(nodes => nodes.map(n => ({ role: n.getAttribute('data-message-author-role'), text: n.innerText, complete: false })));
   }
@@ -120,7 +165,7 @@ export class BrowserBridge {
       const anchoredIndex = record.user_message_id ? messages.findIndex(m => m.role === 'user' && m.message_id === record.user_message_id) : -1;
       if (record.user_message_id && anchoredIndex < 0) throw new BridgeError('当前页面未加载本次用户消息，无法可靠恢复');
       const appended = messages.slice(anchoredIndex >= 0 ? anchoredIndex : record.before_count);
-      const userIndex = appended.findIndex(m => m.role === 'user' && m.text.trim() === record.question.trim());
+      const userIndex = findUserMessageIndex(appended, record.question);
       if (userIndex >= 0) {
         record.user_message_id ||= appended[userIndex].message_id;
         const afterQuestion = appended.slice(userIndex + 1);
@@ -134,10 +179,10 @@ export class BrowserBridge {
         const generating = await page.locator('button[data-testid="stop-button"]').isVisible();
         const completedTurn = assistantMessages.length > 0 && assistantMessages.every(m => m.complete);
         const legacyControls = page.locator('article').filter({ has: page.locator('[data-message-author-role="assistant"]') }).last().locator('button[data-testid="copy-turn-action-button"]');
-        const hasControls = completedTurn || await legacyControls.count() > 0;
+        const hasLegacyControls = await legacyControls.count() > 0;
         stable = answer && answer === previous ? stable + 1 : 0;
         previous = answer;
-        if (answer && !generating && hasControls && stable >= 2 && record.conversation_url) {
+        if (isTurnComplete({ answer, generating, turnComplete: completedTurn, hasLegacyControls, stable, conversationUrl: record.conversation_url })) {
           record.user_action = classifyReply(answer);
           record.status = record.user_action.required ? 'awaiting_user_input' : 'completed'; record.incomplete = false;
           record.generation_complete = true; record.generation_status = 'completed';
