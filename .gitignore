@@ -3,3 +3,5 @@ records/
 browser-profile/
 *.log
 conversation.json
+.secrets/
+coordinator.json
