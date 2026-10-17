@@ -40,3 +40,9 @@ packet中的task_id必须匹配。首次ask新建主控对话，后续ask自动�
 异常退出可能留下任务目录中的.lock。先确认没有请求正在执行，再人工移除该空锁目录并recover，不能靠删除锁并重发解决不确定提交。任务编号不变即可跨操作手本地聊天继续任务。
 
 适配器定义在role-collaboration.example.json，可复制为忽略Git的role-collaboration.json修改。消息使用主控手与操作手角色，底层模型名称留在本地部署配置；新模型仍需要兼容new/continue/recover和结构化返回值的适配器。
+
+### 让其他本机服务共用 CDP
+
+start.bat 调用的 Chrome 启动脚本默认带 --remote-allow-origins=*，兼容携带不同 Origin 的 WebSocket 客户端；继续使用 127.0.0.1 调试地址与独立的 ChatGPT-CDP-Profile。该参数允许任意 Origin，应仅在可信本机环境使用，不将调试端口转发或暴露到网络。
+
+若 9222 已可用，启动脚本保留并复用现有 Chrome，不会强制重启共享浏览器，也无法向已运行进程补参数。旧实例需要在各服务任务结束、工作保存后手动关闭对应专用 CDP Chrome，再运行 start.bat；普通 Chrome 窗口无需关闭。stop.bat 保留共享浏览器，所以只运行 stop.bat / start.bat 不保证新 Chrome 参数生效。多个服务仍应各自绑定目标标签页，不同时操作同一对话输入框。

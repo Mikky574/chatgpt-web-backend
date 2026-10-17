@@ -7,6 +7,7 @@ try {
   $version = Invoke-RestMethod "http://127.0.0.1:$Port/json/version" -TimeoutSec 3
   if ($version.webSocketDebuggerUrl) {
     Write-Output "CDP already available: http://127.0.0.1:$Port ($($version.Browser))"
+    Write-Output 'Existing Chrome was reused; new launch flags require restarting that dedicated CDP browser. Other services may be using it.'
     exit 0
   }
 } catch {}
@@ -22,7 +23,7 @@ if ($resolvedProfile.StartsWith([Environment]::GetFolderPath('Windows'), [String
   throw 'Use a writable user profile directory outside Windows.'
 }
 New-Item -ItemType Directory -Path $resolvedProfile -Force | Out-Null
-Start-Process -FilePath $chromePath -ArgumentList "--remote-debugging-port=$Port",'--remote-debugging-address=127.0.0.1',('"--user-data-dir=' + $resolvedProfile + '"'),'https://chatgpt.com/' -WindowStyle Hidden
+Start-Process -FilePath $chromePath -ArgumentList "--remote-debugging-port=$Port",'--remote-debugging-address=127.0.0.1','--remote-allow-origins=*',('"--user-data-dir=' + $resolvedProfile + '"'),'https://chatgpt.com/' -WindowStyle Hidden
 for ($attempt = 0; $attempt -lt 15; $attempt++) {
   try {
     $version = Invoke-RestMethod "http://127.0.0.1:$Port/json/version" -TimeoutSec 1
