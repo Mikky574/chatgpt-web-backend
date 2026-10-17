@@ -8,16 +8,35 @@ function Test-Endpoint([string]$Url) {
 }
 if($Action -eq 'check') { foreach($item in @(@('Chat UI / queue','http://127.0.0.1:8789/health'),@('Browser backend','http://127.0.0.1:8787/health'),@('CDP','http://127.0.0.1:9222/json/version'),@('Operator UI','http://127.0.0.1:3030/'))) { Write-Output "$($item[0]): $(Test-Endpoint $item[1])" }; exit 0 }
 if($Action -eq 'stop') {
-  if(!(Test-Path -LiteralPath $stateFile)) { Write-Output 'No services owned by start.bat. Existing services and browser were kept.'; exit 0 }
+  . (Join-Path $PSScriptRoot 'process-identity.ps1')
   # Cast to a raw array: ConvertFrom-Json wraps a JSON array in a PSObject that
   # would otherwise re-serialize as {"value":[...],"Count":n} on the next start.
-  $owned=[object[]](Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json)
+  $owned=@();if(Test-Path -LiteralPath $stateFile){$owned=[object[]](Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json)}
   foreach($entry in $owned) {
     $process=Get-Process -Id $entry.pid -ErrorAction SilentlyContinue
     if($process -and $process.StartTime.ToUniversalTime().Ticks.ToString() -eq $entry.started) { Stop-Process -Id $process.Id; Write-Output "Stopped $($entry.name)" }
   }
-  [IO.File]::WriteAllText($stateFile,'[]')
-  Write-Output 'Browser, login profile, task history, and reused services were kept.'; exit 0
+  # Reused or manually launched services might not be in services.json.
+  # An absolute entry path proves project identity; a relative entry or occupied port alone does not.
+  foreach($candidate in @(Get-CimInstance Win32_Process -Filter "Name='node.exe'")){
+    if(Test-ProjectServiceCommand $candidate.CommandLine $candidate.ExecutablePath $projectRoot){
+      $current=Get-CimInstance Win32_Process -Filter "ProcessId=$($candidate.ProcessId)" -ErrorAction SilentlyContinue
+      if($current -and $current.CreationDate -eq $candidate.CreationDate -and (Test-ProjectServiceCommand $current.CommandLine $current.ExecutablePath $projectRoot)){
+        Stop-Process -Id $current.ProcessId -ErrorAction Stop;Write-Output "Stopped current-project backend PID $($current.ProcessId)"
+      }
+    }
+  }
+  if(Test-Path -LiteralPath $stateFile){[IO.File]::WriteAllText($stateFile,'[]')}
+  $remaining=@()
+  for($attempt=0;$attempt -lt 20;$attempt++){
+    $remaining=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in @(8787,8789) })
+    if(!$remaining.Count){break};Start-Sleep -Milliseconds 200
+  }
+  if($remaining.Count){
+    foreach($listener in $remaining|Sort-Object LocalPort,OwningProcess -Unique){Write-Output "Still listening: port $($listener.LocalPort), PID $($listener.OwningProcess). Identity could not be verified as this project; kept. If launched with a relative script path, stop it in its original terminal (Ctrl+C)."}
+    Write-Output 'Stop incomplete. Browser and login were kept. Do not assume new code is loaded until these listeners are stopped.';exit 1
+  }
+  Write-Output 'Stop verified: ports 8787 and 8789 have no listeners. Browser, login profile and task history were kept.';exit 0
 }
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 & (Join-Path $PSScriptRoot 'ensure-dependencies.ps1') -ProjectRoot $projectRoot
