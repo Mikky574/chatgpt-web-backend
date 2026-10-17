@@ -1,4 +1,4 @@
-param([ValidateSet('start','stop','check')][string]$Action='check',[ValidateSet('web')][string]$Transport='web')
+param([ValidateSet('start','stop','check')][string]$Action='check')
 $ErrorActionPreference='Stop'
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $runtime=Join-Path $projectRoot 'records\runtime'
@@ -41,10 +41,8 @@ if($Action -eq 'stop') {
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 & (Join-Path $PSScriptRoot 'ensure-dependencies.ps1') -ProjectRoot $projectRoot
 $node=(Get-Command node.exe -ErrorAction Stop).Source
-if($Transport -eq 'web') {
-  & (Join-Path $projectRoot 'skills\chatgpt-browser-bridge\scripts\start-browser.ps1')
-  if($LASTEXITCODE -ne 0) { throw 'Browser startup failed' }
-}
+& (Join-Path $projectRoot 'skills\chatgpt-browser-bridge\scripts\start-browser.ps1')
+if($LASTEXITCODE -ne 0) { throw 'Browser startup failed' }
 $owned=@()
 if(Test-Path -LiteralPath $stateFile) { $owned=[object[]](Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json) }
 function Start-Owned([string]$Name,[string]$Executable,[string]$Script,[string]$Endpoint) {
@@ -60,14 +58,12 @@ function Start-Owned([string]$Name,[string]$Executable,[string]$Script,[string]$
 # process, and an inherited PORT must not redirect the backend onto the operator port.
 $env:PORT='8787'
 $env:CHAT_UI_PORT='8789'
-if($Transport -eq 'web') {
   Start-Owned 'gpt' $node (Join-Path $projectRoot 'server.mjs') 'http://127.0.0.1:8787/health'
   if(Test-Endpoint 'http://127.0.0.1:8789/health'){
     $gatewayHealth=Invoke-RestMethod 'http://127.0.0.1:8789/health'
     if($gatewayHealth.provider -ne 'chatgpt-web'){throw 'Port 8789 belongs to another provider. Stop the owned old service before starting the web chat.'}
   }
   Start-Owned 'web-ui' $node (Join-Path $projectRoot 'web-gateway.mjs') 'http://127.0.0.1:8789/health'
-}
 if(!(Test-Endpoint 'http://127.0.0.1:8787/health') -or !(Test-Endpoint 'http://127.0.0.1:8789/health')){throw 'Required backend services are not both ready. Check records/runtime logs.'}
 Write-Output 'Required services ready: browser backend 8787, chat / queue 8789.'
 if(!(Test-Endpoint 'http://127.0.0.1:3030/')) {
