@@ -20,8 +20,8 @@ if($Action -eq 'stop') {
   Write-Output 'Browser, login profile, task history, and reused services were kept.'; exit 0
 }
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+& (Join-Path $PSScriptRoot 'ensure-dependencies.ps1') -ProjectRoot $projectRoot
 $node=(Get-Command node.exe -ErrorAction Stop).Source
-if(!(Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\playwright-core'))) { throw 'Dependencies missing. Run npm ci in this folder first.' }
 if($Transport -eq 'web') {
   & (Join-Path $projectRoot 'skills\chatgpt-browser-bridge\scripts\start-browser.ps1')
   if($LASTEXITCODE -ne 0) { throw 'Browser startup failed' }

@@ -11,8 +11,8 @@
 ## 首次安装或换机器
 
 1. 安装Node.js（建议24系列）和Google Chrome。安装操作手应用及自行配置模型。官方桌面安装见 [安装文档](https://zcode.z.ai/cn/docs/install)。桌面安装并不自动生成本项目启动脚本要求的源码构建目录；使用桌面版时可从桌面打开项目，网页3030部分需单独部署。
-2. 下载或克隆本项目，在项目根目录运行 `npm ci`，再运行 `npm test`。
-3. 当前start.bat的3030启动依赖现有源码构建产物：packages/server/dist/entry-http.js、packages/web/dist、apps/zcode-cli/packages/cli/dist/zcode.cjs及安装目录下toolchain的Node。如果是新机器而只有桌面版，先使用项目技能中的浏览器启动脚本，再 `npm start`，然后在桌面操作手中打开本项目；不要假定桌面版与本机源码部署相同。
+2. 下载或克隆完整项目，双击 `start.bat`。脚本会检查Node.js与依赖是否可加载，缺少依赖时自动在项目目录运行 `npm ci --no-audit --no-fund`，安装成功后继续启动；已有可用依赖时跳过安装。首次安装需要npm仓库可达，沿用机器已有npm网络配置，不写入项目代理。失败会显示npm原始错误并停止，不会报告服务已全部启动。不要同时运行多个start.bat。手动安装仍可用 `npm ci`，验证可运行 `npm test`。
+3. 3030操作手界面依赖现有源码构建产物：packages/server/dist/entry-http.js、packages/web/dist、apps/zcode-cli/packages/cli/dist/zcode.cjs及安装目录下toolchain的Node。新机器未安装这些产物时会跳过可选操作手界面，不影响8787网页后端与8789体验页；可在桌面操作手中打开本项目。
 4. 首次启动固定CDP浏览器后，登录ChatGPT。不要复制Cookie进仓库，不要清空登录配置。操作手密钥由其应用管理，本项目不需要DeepSeek密钥文件。
 
 ## 技能放在哪里
