@@ -21,6 +21,12 @@ test('web runner refuses changed conversation and transport uncertainty',async()
  await assert.rejects(createWebRunner({fetchImpl:async()=>{throw Error('connection lost');}})(input),/RESULT_UNCERTAIN/);
 });
 
+test('pre-submission busy is explicit and does not strand clients in pending',async()=>{
+ const runner=createWebRunner({fetchImpl:async()=>({status:409,json:async()=>({error:'busy',request_submitted:false})})});
+ const result=await runner({requestId:'busy-job',question:'public',onEvent:()=>{}});
+ assert.equal(result.request_submitted,false);assert.equal(result.request_id,'busy-job');assert.equal(result.generation_complete,false);assert.equal(result.error,'busy');
+});
+
 test('web runner allows only a documented unavailable-conversation reset',async()=>{
  const old='https://chatgpt.com/c/old',next='https://chatgpt.com/c/new';
  const runner=createWebRunner({fetchImpl:async()=>({json:async()=>({request_id:'reset',conversation_url:next,status:'completed',generation_complete:true,context_reset:{reason:'conversation_unavailable',from_url:old,to_url:next,history_transferred:false}})})});

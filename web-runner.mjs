@@ -16,7 +16,11 @@ export function createWebRunner({backend='http://127.0.0.1:8787',timeoutMs=12000
   try{response=await fetchImpl(new URL(operation==='ask'?'/ask':'/recover',url),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(timeoutMs+30000)});}
   catch{throw new Error('WEB_TRANSPORT_RESULT_UNCERTAIN');}finally{clearInterval(timer);}
   const result=await response.json();
-  if(!result.request_id||result.request_id!==requestId){const e=new Error('WEB_BACKEND_REJECTED');e.result=result;throw e;}
+  if(!result.request_id||result.request_id!==requestId){
+    // A validation/capacity rejection happened before any browser submission.
+    if(result.request_submitted===false||[400,404,409,413,415].includes(response.status))return {request_id:requestId,status:'failed',generation_complete:false,generation_status:'not_started',request_submitted:false,error:result.error||'WEB_BACKEND_REJECTED'};
+    const e=new Error('WEB_BACKEND_REJECTED');e.result=result;throw e;
+  }
   if(sessionId&&result.conversation_url&&conversationUrl(sessionId)!==conversationUrl(result.conversation_url)&&!(result.context_reset?.reason==='conversation_unavailable'&&result.context_reset.from_url===sessionId&&result.context_reset.to_url===result.conversation_url&&result.context_reset.history_transferred===false))throw new Error('WEB_CONVERSATION_CHANGED');
   if(result.conversation_url)onEvent({type:'session.started',session_id:result.conversation_url});
   if(result.answer)onEvent({type:'answer.available',text:result.answer});
