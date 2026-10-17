@@ -31,3 +31,20 @@ test('uncertain new request without URL cannot fall back to default conversation
  const bridge=new BrowserBridge({conversation_url:'https://chatgpt.com/c/unrelated'},async()=>{});bridge.page=async()=>assert.fail('must not navigate');
  await assert.rejects(bridge.recover({conversation_mode:'new',stage:'submitting',submit_attempted:true},async()=>{},1000),/不回退/);
 });
+
+test('unconfirmed submission recovery stops immediately without waiting or resending',async()=>{
+ const bridge=new BrowserBridge({},async()=>{});bridge.page=async()=>({});bridge.messages=async()=>[];
+ bridge.wait=async()=>assert.fail('must not wait for an unanchored message');
+ bridge.ask=async()=>assert.fail('must not resend');
+ const record={conversation_url:'https://chatgpt.com/c/original',question:'public',before_count:0,submit_attempted:true,submission_confirmed:false};
+ const result=await bridge.recover(record,async()=>{},120000);
+ assert.equal(result.status,'blocked');assert.equal(result.generation_status,'submission_unconfirmed');
+ assert.notEqual(result.request_submitted,false);assert.equal(result.refresh.allowed,false);
+});
+
+test('failure before composer lookup is explicitly unsent',async()=>{
+ const bridge=new BrowserBridge({},async()=>{});bridge.page=async()=>{throw new Error('page unavailable')};
+ const record={question:'public'};
+ await assert.rejects(bridge.ask(record,async()=>{},120000),/page unavailable/);
+ assert.equal(record.request_submitted,false);assert.equal(record.submit_attempted,undefined);
+});

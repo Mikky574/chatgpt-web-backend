@@ -221,6 +221,8 @@ export class BrowserBridge {
     }
   }
   async ask(record, persist, timeoutMs) {
+    // Until a submit action is attempted, failures are known to be unsent.
+    record.request_submitted=false;
     record.submission_text??=browserSubmissionText(record.question);
     if(record.submission_text!==record.question)record.input_transform={kind:'markdown_links_to_plain_text',original_preserved:true};
     record.stage='locating_conversation';await persist(record);
@@ -294,13 +296,27 @@ export class BrowserBridge {
     throw new BridgeError('未观察到本次用户消息：发送尚未确认。请检查网页输入框及提示；保留原请求ID，勿自动重发');
   }
   async recover(record, persist, timeoutMs, {refreshPage=false} = {}) {
-    if(record.request_submitted===false||(record.stage==='filling_composer'&&!record.submit_attempted&&!record.submission_confirmed&&!record.user_message_id)){
+    if(record.request_submitted===false||(['locating_conversation','filling_composer'].includes(record.stage)&&!record.submit_attempted&&!record.submission_confirmed&&!record.user_message_id)){
       record.request_submitted=false;record.status='blocked';record.error='本轮在输入校验阶段停止，未执行发送；修正输入后用新请求提交，勿恢复到默认对话';await persist(record);return record;
     }
     if(!record.conversation_url&&record.conversation_mode==='new')throw new BridgeError('新会话未保存实际对话地址，停止恢复；不回退到默认对话');
     record.conversation_url ||= this.config.conversation_url;
     if (!record.conversation_url) throw new BridgeError('未保存对话地址，无法安全恢复；请在浏览器确认提问是否提交');
+    if(refreshPage&&!record.user_message_id)throw new BridgeError('刷新恢复需要已确认的用户消息ID；提交不确定时不能自动刷新或重发');
     const page = await this.page(record);
+    if(!record.user_message_id){
+      const messages=await this.messages(page);
+      const index=findUserMessageIndex(messages,record.submission_text||record.question,record.before_count);
+      if(index<0||!messages[index].message_id){
+        record.status='blocked';record.generation_status='submission_unconfirmed';record.generation_complete=false;record.incomplete=true;
+        record.retry={allowed:false,category:'submission_unconfirmed'};
+        record.refresh={allowed:false,category:'submission_unconfirmed'};
+        record.error='恢复未找到可确认的本次用户消息，已停止读取并释放服务；发送结果仍不确定，请人工核对原对话，勿自动重发';
+        await persist(record);return record;
+      }
+      record.user_message_id=messages[index].message_id;record.submission_confirmed=true;
+      await persist(record);
+    }
     if(await this.conversationUnavailable(page,record)){
       await this.resetConversation(record,persist);
       return this.ask(record,persist,timeoutMs);
