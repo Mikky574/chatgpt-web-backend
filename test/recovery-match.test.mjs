@@ -38,6 +38,16 @@ test('DOM reader leaves a bubble with no toggle control untouched', () => {
   assert.equal(userMessageText(bubble, COLLAPSE_CONTROL), '一段普通用户消息\n收起');
 });
 
+test('aria-hidden SVG without innerText does not crash either live reader or helper',async()=>{
+ const svg={textContent:'',style:{display:''},getAttribute:name=>name==='aria-hidden'?'true':null};
+ const bubble=new FakeBubble('完整合成回答',[svg]);
+ assert.doesNotThrow(()=>userMessageText(bubble,COLLAPSE_CONTROL));
+ const node={innerText:'完整合成回答',querySelectorAll:()=>[svg],hasAttribute:()=>false,closest:()=>null};
+ const locator={last(){return this},locator(){return this},count:async()=>1,evaluateAll:async(fn,arg)=>fn([node],arg)};
+ const bridge=new BrowserBridge({},async()=>{});const result=await bridge.messages({locator:()=>locator});
+ assert.equal(result[0].text,'完整合成回答');assert.equal(result[0].role,'assistant');
+});
+
 test('strict matching accepts the filtered bubble and rejects shared-prefix prompts', () => {
   const bubble = new FakeBubble(QUESTION, [new FakeButton('收起')]);
   const messages = [

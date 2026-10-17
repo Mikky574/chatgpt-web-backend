@@ -27,6 +27,8 @@
 2. **unresolved_request**：响应request_id可能是阻塞的旧轮次ID，而不是刚提交的ID。查看guidance.blocking_request_id、blocking_request_id或recovery.body.request_id。GET旧记录，再recover旧轮次。保留本次尚未发送的问题，不能不断换ID撞锁。若用户确实另开独立话题，使用新会话，不自动迁移旧历史。
 3. **busy/queue_full**：查看active、队列和request_submitted。未受理才等待后再提交；已受理查询原ID。不要开更多网页或切账号绕锁。
 4. **timeout/断线/interrupted**：提交可能已发生，先GET和recover原ID。stage=submitting但submission_confirmed=false表示不确定，不表示肯定没发送；空answer也不证明没送达。
+
+   submission_confirmed=true、stage=reading_answer而出现DOM脚本异常（例如undefined.trim）表示页面读取失败，不证明网站流断开。部分answer即使很长也不能称完整；更新修复后recover原ID读取同轮，只有generation_complete=true才能按完整回复处理。stream_finished=false也可能只是观测尚未结束，不能单独推断网络错误或“答案实际完整”。
 5. **generation_complete=true**：本轮生成结束，再看status与user_action；awaiting_user_input可能是完整回答要求澄清，不是生成卡住。只有真实完整回答可作为主控回复。
 6. **retry.allowed / refresh.allowed**：按对应原请求显式retry或refresh，各自上限生效。网页验证、限流、登录需要人工或等待，不循环重试。
 7. **身份变化**：只有明确context_reset记录的对话失效重建可更新绑定；其他URL变化停止核对。新会话不会记得旧讨论，必要时单独整理已授权摘要。

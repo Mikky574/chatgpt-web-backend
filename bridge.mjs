@@ -49,7 +49,7 @@ export function findUserMessageIndex(messages, question, startIndex = 0) {
 // Mirrors the in-page reader used by messages(). Only explicit collapse/expand
 // controls are hidden; the author's own prose (including a literal "收起") stays.
 export function userMessageText(node, togglePattern) {
-  const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => togglePattern.test((((control.getAttribute && control.getAttribute('aria-label')) || control.innerText) || '').trim()) || (control.getAttribute?.('aria-hidden') === 'true' && control.innerText.trim() === '…'));
+  const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => togglePattern.test((((control.getAttribute && control.getAttribute('aria-label')) || control.innerText) || '').trim()) || (control.getAttribute?.('aria-hidden') === 'true' && (control.innerText ?? control.textContent ?? '').trim() === '…'));
   if (!controls.length) return node.innerText;
   const saved = controls.map(control => control.style.display);
   controls.forEach(control => { control.style.display = 'none'; });
@@ -121,7 +121,7 @@ export class BrowserBridge {
       if(fresh&&!url){
         for(const candidate of context.pages()){
           if(record.project_url?projectUrl(candidate.url())!==entry:!/^https:\/\/chatgpt\.com\/?(?:\?|$)/.test(candidate.url()))continue;
-          const safe=await candidate.locator('main').evaluateAll(nodes=>nodes.length===1&&!nodes[0].querySelector('[data-user-message-bubble], [data-message-author-role]')&&![...nodes[0].querySelectorAll('[contenteditable="true"]')].some(n=>n.innerText.trim()));
+          const safe=await candidate.locator('main').evaluateAll(nodes=>nodes.length===1&&!nodes[0].querySelector('[data-user-message-bubble], [data-message-author-role]')&&![...nodes[0].querySelectorAll('[contenteditable="true"]')].some(n=>(n.innerText ?? n.textContent ?? '').trim()));
           if(safe&&!await this.conversationUnavailable(candidate)){page=candidate;break;}
         }
       }
@@ -160,7 +160,7 @@ export class BrowserBridge {
       return current.evaluateAll((nodes, pattern) => {
         const toggle = new RegExp(pattern, 'i');
         const text = node => {
-          const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()) || (control.getAttribute('aria-hidden') === 'true' && control.innerText.trim() === '…'));
+          const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()) || (control.getAttribute('aria-hidden') === 'true' && (control.innerText ?? control.textContent ?? '').trim() === '…'));
           if (!controls.length) return node.innerText;
           const saved = controls.map(control => control.style.display);
           controls.forEach(control => { control.style.display = 'none'; });
@@ -282,7 +282,7 @@ export class BrowserBridge {
       if((record.refresh_count||0)>=2)throw new BridgeError('已达到原请求的两次刷新上限，请人工检查网页');
       const issue=await this.pageIssue(page);
       if(issue==='browser_verification'||issue==='rate_limited')throw new BridgeError('网页验证或限流需要人工处理，不通过刷新循环重试');
-      const draft=await page.locator('[contenteditable="true"]:visible').evaluateAll(nodes=>nodes.some(n=>n.innerText.trim()));
+      const draft=await page.locator('[contenteditable="true"]:visible').evaluateAll(nodes=>nodes.some(n=>(n.innerText ?? n.textContent ?? '').trim()));
       if(draft)throw new BridgeError('页面输入框有未提交内容，停止刷新以免丢失草稿');
       if(await page.locator('button[data-testid="stop-button"]:visible').count())throw new BridgeError('页面仍在生成，不刷新活动请求');
       const messages=await this.messages(page);
@@ -322,7 +322,7 @@ export class BrowserBridge {
   }
   async pageIssue(page){
     // Read site alerts only: assistant prose mentioning refresh is not a UI failure.
-    const text=await page.locator('[role="alert"]:visible,[role="alertdialog"]:visible,[role="dialog"]:visible,main:visible').evaluateAll(nodes=>nodes.map(n=>n.tagName==='MAIN'?[...n.querySelectorAll('button')].filter(b=>b.getClientRects().length&&!b.closest('[data-message-author-role],[data-markdown-text-style],[data-user-message-bubble]')&&/^(?:刷新(?:页面)?|重新加载(?:页面)?|Refresh(?: page)?|Reload(?: page)?)$/i.test((b.getAttribute('aria-label')||b.innerText).trim())).map(b=>b.getAttribute('aria-label')||b.innerText).join('\n'):n.innerText).join('\n'));
+    const text=await page.locator('[role="alert"]:visible,[role="alertdialog"]:visible,[role="dialog"]:visible,main:visible').evaluateAll(nodes=>nodes.map(n=>n.tagName==='MAIN'?[...n.querySelectorAll('button')].filter(b=>b.getClientRects().length&&!b.closest('[data-message-author-role],[data-markdown-text-style],[data-user-message-bubble]')&&/^(?:刷新(?:页面)?|重新加载(?:页面)?|Refresh(?: page)?|Reload(?: page)?)$/i.test((b.getAttribute('aria-label')||b.innerText||b.textContent||'').trim())).map(b=>b.getAttribute('aria-label')||b.innerText).join('\n'):n.innerText).join('\n'));
     return typeof text==='string'?classifyPageIssue(text):null;
   }
   async retry(record, persist, timeoutMs) {
@@ -383,7 +383,7 @@ export class BrowserBridge {
           const turns=nodes.flatMap(n=>[...n.querySelectorAll('[data-talvt-turn-state]')]);
           const turn=turns.find(n=>[...n.querySelectorAll('[data-chatgpt-search-message-ids]')].some(e=>(e.getAttribute('data-chatgpt-search-message-ids')||'').split(' ').includes(id)));
           if(!turn)return {text:'',retry:false};
-          return {text:turn.innerText,retry:[...turn.querySelectorAll('button')].some(b=>b.getClientRects().length && /^(重试|Retry|Try again)$/i.test((b.getAttribute('aria-label')||b.innerText).trim()))};
+          return {text:turn.innerText,retry:[...turn.querySelectorAll('button')].some(b=>b.getClientRects().length && /^(重试|Retry|Try again)$/i.test((b.getAttribute('aria-label')||b.innerText||b.textContent||'').trim()))};
         },record.user_message_id);
         const alerts=await page.locator('[role="alert"]:visible').evaluateAll(nodes=>nodes.map(n=>n.innerText).join('\n'));
         const failure = classifyGenerationFailure((failureUI.text || '')+'\n'+alerts);
