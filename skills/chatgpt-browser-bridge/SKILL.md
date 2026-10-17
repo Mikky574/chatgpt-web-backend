@@ -17,6 +17,8 @@ Windows 上先检查 http://127.0.0.1:9222/json/version。若已返回 webSocket
 
 ## 上下文、返回值与文件
 
+允许多个首页及多个对话标签同时存在，不要求用户关闭其他对话。按精确URL定位，首次无默认URL时选择安全空首页或后台新建；同一账号的重复对话页使用后台专用页并缓存复用，避免覆盖草稿。多个登录上下文才需要显式browser_context_index，不将多标签误判为多账号。
+
 错误时读取后端guidance而非臆造参数：request_submitted=false表示本次未发出；unresolved_request指向的可能是阻塞旧轮次，先查旧记录并recover，不重复提交当前问题。timeout或空回答不证明没送达。新话题显式new，续聊显式continue加返回URL；每轮新request_id，恢复同一轮沿用原ID。8787与8789调用约定见HTTP参考，不混用字段。
 
 ZCode 作为执行侧时，由 ZCode 管理模型连接和凭据。本项目不读取执行侧 API Key，也不提供 8788 独立模型协调器。在项目根目录使用 consult-gpt.mjs 发送指定摘要；完整示例见 docs/zcode-gpt-example.md。首次 new，后续 continue 显式传 conversation_url，同一次未知提交用 recover 保留 request_id。

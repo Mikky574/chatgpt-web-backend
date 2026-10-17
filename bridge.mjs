@@ -95,19 +95,24 @@ export class BrowserBridge {
     const url = record.context_reset_pending?null:record.conversation_url || (record.conversation_mode === 'new' ? null : this.config.conversation_url);
     const entry=record.project_url?projectUrl(record.project_url):this.config.entry_url||'https://chatgpt.com/';
     if(!entry)throw new BridgeError('无效的官网项目地址');
-    const fresh=record.context_reset_pending||record.conversation_mode==='new';
+    const fresh=record.context_reset_pending||record.conversation_mode==='new'||!url;
     if (url && !conversationUrl(url)) throw new BridgeError('conversation_url 必须是 ChatGPT 对话地址');
     const browser = await this.connect();
     const contexts = browser.contexts();
     if (!contexts.length) throw new BridgeError('没有可用的浏览器上下文');
     this.requestPages ||= new Map();
-    let page = record.request_id ? this.requestPages.get(record.request_id) : null;
+    this.conversationPages ||= new Map();
+    let page = (record.request_id ? this.requestPages.get(record.request_id) : null)||(url?this.conversationPages.get(conversationUrl(url)):null);
     if(page?.isClosed())page=null;
     if(page && url && conversationUrl(page.url().split('?')[0])!==conversationUrl(url)&&!await this.conversationUnavailable(page,record))throw new BridgeError('已绑定的请求标签页离开原对话，停止操作');
     if(!page && !(fresh && !url)) {
       const matches=contexts.flatMap(c=>c.pages()).filter(p=>url?conversationUrl(p.url().split('?')[0])===conversationUrl(url):p.url().split('?')[0]===entry);
-      if(matches.length>1)throw new BridgeError('目标对话存在多个标签页，无法确定操作目标；请保留一个后恢复');
-      page=matches[0];
+      const matchingContexts=contexts.filter(c=>c.pages().some(p=>matches.includes(p)));
+      if(matches.length>1&&matchingContexts.length>1&&!Number.isInteger(this.config.browser_context_index))throw new BridgeError('相同对话出现在多个登录上下文，请指定browser_context_index；不要求关闭其他标签页');
+      const scoped=Number.isInteger(this.config.browser_context_index)?matches.filter(p=>contexts[this.config.browser_context_index]?.pages().includes(p)):matches;
+      // Duplicate tabs in one account are valid. Create a dedicated background tab,
+      // rather than overwrite a user's draft or choose whichever tab happens to be first.
+      page=scoped.length===1?scoped[0]:null;
     }
     if (!page) {
       const context = Number.isInteger(this.config.browser_context_index) ? contexts[this.config.browser_context_index] : contexts.length===1 ? contexts[0] : null;
@@ -136,6 +141,7 @@ export class BrowserBridge {
       }
     }
     if(record.request_id)this.requestPages.set(record.request_id,page);
+    if(url)this.conversationPages.set(conversationUrl(url),page);
     if (url && conversationUrl(page.url().split('?')[0]) !== conversationUrl(url)&&!await this.conversationUnavailable(page,record)) throw new BridgeError('固定对话地址不可访问，未创建替代对话');
     await page.locator('[role="textbox"][contenteditable="true"]:visible').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     if(url&&conversationUrl(page.url().split('?')[0])!==conversationUrl(url)&&!await this.conversationUnavailable(page,record))throw new BridgeError('页面加载后离开原对话，停止输入以免误发');
@@ -177,6 +183,7 @@ export class BrowserBridge {
     if (url && url !== record.conversation_url) {
       if (record.conversation_url) throw new BridgeError('网页切换到了其他对话');
       record.conversation_url = url;
+      this.conversationPages ||=new Map();this.conversationPages.set(url,page);
       if(record.context_reset_pending){
         record.context_reset.to_url=url;record.context_reset_pending=false;
         if(this.config.conversation_url===record.context_reset.from_url){this.config.conversation_url=url;await this.saveConfig(this.config);}

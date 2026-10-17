@@ -2,6 +2,8 @@
 
 先检查8789/health与8787/status。8787连通而8789拒绝连接表示队列服务未启动，不是问题参数错误；执行项目start.bat，检查records/runtime/web-ui-error.log。不要反复重启Chrome。
 
+多个ChatGPT标签页是正常场景，不要求用户只保留一个。按返回的对话URL定位；没有默认对话时选择安全空首页或后台新建。单账号同一对话多份标签时使用后台专用页并复用，不覆盖已有草稿；多账号上下文才要求指定browser_context_index。旧版报“目标对话存在多个标签页”时先更新后端，不把不同对话的存在当作故障。
+
 优先 `node task-controller.mjs ask <固定task_id> <已审核packet.json>`，由脚本管理每轮request_id与对话绑定。读取返回state.last_result；错误时检查guidance、blocking_request_id、pending和recovery。元数据是本地协议，不把整份错误记录复制给网页主控。guidance是确定性后端提示，不替代用户授权。
 
 ## 手动HTTP用于诊断
