@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {BrowserBridge,normalizedComposerText,findUserMessageIndex} from '../bridge.mjs';
+import {BrowserBridge,normalizedComposerText,findUserMessageIndex,editablePlainText} from '../bridge.mjs';
+test('semantic composer reader retains inline URL text and paragraphs without icon layout breaks',()=>{
+ const text=value=>({nodeType:3,nodeValue:value});
+ const element=(tag,children=[],hidden=false)=>({nodeType:1,tagName:tag,childNodes:children,getAttribute:key=>key==='aria-hidden'&&hidden?'true':null});
+ const root=element('DIV',[element('P',[text('公开测试')]),element('P',[element('BR')]),element('P',[text('- curl '),element('SPAN',[element('SPAN',[element('SVG')],true),text('http://example.test/status')]),text(': HTTP 000')])]);
+ assert.equal(normalizedComposerText(editablePlainText(root)),normalizedComposerText('公开测试\n\n- curl http://example.test/status: HTTP 000'));
+});
 test('rich text blank lines match whole content but changed words and shared prefixes do not',()=>{
  const question='公开测试\r\n\r\n## 现象\r\n- 第一项\r\n- 第二项\n';
  const rendered='公开测试\n\n\n## 现象\n\n- 第一项\n\n- 第二项\n';

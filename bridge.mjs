@@ -13,6 +13,17 @@ export function classifyReply(answer) {
 export const COLLAPSE_CONTROL = /^(收起|展开|显示更多|显示更少|show (?:less|more))$/i;
 // Contenteditable paragraphs may introduce extra blank lines; never remove words or compare prefixes.
 export function normalizedComposerText(value){return (value||'').replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/\n(?:[ \t]*\n)+/g,'\n').trim();}
+export function editablePlainText(root){
+ const walk=node=>{
+  if(node.nodeType===3)return node.nodeValue||'';
+  if(node.nodeType!==1)return '';
+  if(node.getAttribute('aria-hidden')==='true'||node.tagName==='SVG')return '';
+  if(node.tagName==='BR')return '\n';
+  const value=[...node.childNodes].map(walk).join('');
+  return /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6])$/.test(node.tagName)?value+'\n':value;
+ };
+ return [...root.childNodes].map(walk).join('');
+}
 export function classifyGenerationFailure(text) {
   if (/cloudflare_challenge|cf-chl-|verify you are human|验证您是真人|人机验证/i.test(text)) return 'browser_verification';
   if (/too many requests|rate limit|达到.*限额|请求过多/i.test(text)) return 'rate_limited';
@@ -160,6 +171,15 @@ export class BrowserBridge {
       return current.evaluateAll((nodes, pattern) => {
         const toggle = new RegExp(pattern, 'i');
         const text = node => {
+          if(node.hasAttribute('data-user-message-bubble')){
+            const copy=node.cloneNode(true);
+            for(const control of copy.querySelectorAll('button,[role="button"],[aria-hidden="true"],svg')){
+              if(control.getAttribute('aria-hidden')==='true'||control.tagName.toLowerCase()==='svg'||toggle.test((control.getAttribute('aria-label')||control.textContent||'').trim()))control.remove();
+            }
+            for(const br of copy.querySelectorAll('br'))br.replaceWith('\n');
+            for(const block of copy.querySelectorAll('p,div,li,pre,blockquote,h1,h2,h3,h4,h5,h6'))block.append('\n');
+            return copy.textContent||'';
+          }
           const controls = [...node.querySelectorAll('button, [role="button"], [aria-hidden="true"]')].filter(control => toggle.test(((control.getAttribute('aria-label') || control.innerText) || '').trim()) || (control.getAttribute('aria-hidden') === 'true' && (control.innerText ?? control.textContent ?? '').trim() === '…'));
           if (!controls.length) return node.innerText;
           const saved = controls.map(control => control.style.display);
@@ -224,9 +244,9 @@ export class BrowserBridge {
     record.stage='filling_composer';await persist(record);
     await input.fill(record.question);
     let actual='';const fillDeadline=Date.now()+2000;
-    do{actual=await input.innerText();if(normalizedComposerText(actual)===normalizedComposerText(record.question))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
+    do{actual=await input.evaluate(editablePlainText);if(normalizedComposerText(actual)===normalizedComposerText(record.question))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
     if(normalizedComposerText(actual)!==normalizedComposerText(record.question)){
-      record.request_submitted=false;record.submission_confirmed=false;record.composer_diagnostics={expected_chars:record.question.length,actual_chars:actual.length,normalization:'line_endings_blank_lines_nbsp'};
+      record.request_submitted=false;record.submission_confirmed=false;record.composer_diagnostics={expected_chars:record.question.length,actual_chars:actual.length,normalization:'semantic_blocks_without_hidden_inline_icons'};
       throw new BridgeError('输入框文本未与本次问题一致，停止提交');
     }
     record.stage='submitting';await persist(record);
