@@ -63,6 +63,17 @@ test('concurrent requests never reach browser together', async t => {
   assert.equal((await first).status, 200);
 });
 
+test('unresolved rejection diagnoses old request and explicit new mode or force_new bypasses only its conversation',async t=>{
+ const seen=[];const {post}=await fixture(t,{ask:async r=>{seen.push(r);return {...r,before_count:0,status:r.request_id==='old'?'timeout':'completed',generation_complete:r.request_id!=='old',answer:''};}});
+ await post('/ask',{request_id:'old',question:'old public question'});
+ const rejection=await(await post('/ask',{request_id:'blocked',question:'new question'})).json();
+ assert.equal(rejection.error,'unresolved_request');assert.equal(rejection.request_submitted,false);assert.equal(rejection.recovery.body.request_id,'old');assert.equal(seen.length,1);
+ assert.equal((await post('/ask',{request_id:'fresh',question:'new question',conversation_mode:'new'})).status,200);
+ assert.equal((await post('/ask',{request_id:'alias',question:'new question',force_new:true})).status,200);assert.equal(seen.at(-1).conversation_mode,'new');
+ assert.equal((await post('/ask',{request_id:'wrong',question:'q',force_new:true,conversation_url:'https://chatgpt.com/c/old'})).status,400);
+ assert.equal((await post('/ask',{request_id:'independent',question:'q',conversation_url:'https://chatgpt.com/c/other'})).status,200);
+});
+
 test('bounded waiting serializes requests and busy identifies the actual owner',async t=>{
  let release,started;const running=new Promise(r=>{started=r});const gate=new Promise(r=>{release=r});const seen=[];
  const {post,base}=await fixture(t,{ask:async r=>{seen.push(r.request_id);if(r.request_id==='owner'){started();await gate;}return {...r,status:'completed',generation_complete:true};}});

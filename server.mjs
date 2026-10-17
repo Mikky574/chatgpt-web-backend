@@ -63,7 +63,9 @@ export async function createService({ directory = root, bridge: injected } = {})
       const id = input.request_id ?? randomUUID();
       if (!validId(id)) return send(400, { error: 'invalid_request_id' });
       if (!['/ask','/projects'].includes(url.pathname) && !input.request_id) return send(400, { error: 'request_id_required' });
-      const mode = input.conversation_mode ?? 'continue';
+      if(input.force_new!==undefined&&typeof input.force_new!=='boolean')return send(400,{error:'force_new must be boolean',request_submitted:false});
+      if(input.force_new&&(url.pathname!=='/ask'||input.conversation_url||(input.conversation_mode&&input.conversation_mode!=='new')))return send(400,{error:'force_new requires ask without conversation_url or continue mode',request_submitted:false});
+      const mode = input.force_new?'new':input.conversation_mode ?? 'continue';
       if (!['continue', 'new'].includes(mode)) return send(400, { error: 'conversation_mode must be continue or new' });
       if (input.conversation_url && !conversationUrl(input.conversation_url)) return send(400, { error: 'invalid_conversation_url' });
       if(input.project_url&&!projectUrl(input.project_url))return send(400,{error:'invalid_project_url'});
@@ -124,8 +126,14 @@ export async function createService({ directory = root, bridge: injected } = {})
           if (!name.endsWith('.json')) continue;
           const pending = await read(name.slice(0, -5));
           const targetUrl = input.conversation_url || config.conversation_url;
-          const sameContext = mode !== 'new' && (!pending?.conversation_url || pending.conversation_url === targetUrl);
-          if (sameContext && pending && pending.before_count !== undefined && pending.status !== 'completed' && !pending.generation_complete) return send(409, { error: 'unresolved_request', request_id: pending.request_id });
+          const sameContext = mode !== 'new' && (pending?.conversation_url?conversationUrl(pending.conversation_url)===conversationUrl(targetUrl):!targetUrl);
+          if (sameContext && pending && pending.before_count !== undefined && pending.status !== 'completed' && !pending.generation_complete) return send(409, {
+            error:'unresolved_request',request_id:pending.request_id,request_submitted:false,
+            pending:{status:pending.status,stage:pending.stage||null,conversation_url:pending.conversation_url||null,submission_confirmed:pending.submission_confirmed===true,answer_chars:pending.answer?.length||0,updated_at:pending.updated_at||null,error:pending.error||null},
+            recovery:{method:'POST',path:'/recover',body:{request_id:pending.request_id,timeout_ms:120000}},
+            new_conversation:{conversation_mode:'new',requires_new_request_id:true,context_inherited:false},
+            message:'本次问题未发送。先恢复旧请求；若要独立新会话，使用新request_id及conversation_mode=new。旧请求保留，不自动重发。'
+          });
         }
       }
       if (!record && (typeof input.question !== 'string' || !input.question.trim() || input.question.length > 30000)) return send(400, { error: 'question must be 1..30000 characters' });

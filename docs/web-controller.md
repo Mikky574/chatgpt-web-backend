@@ -101,6 +101,10 @@ generation_complete=true表示网页回答生成结束，不代表用户整个�
 
 ## 保密与现状
 
+### unresolved_request 不是网页busy
+
+直接调用8787/ask且省略conversation_mode会续用默认对话。同对话存在未完成且可能已经提交的旧轮次时返回409 unresolved_request；本次输入未发送。响应包含request_submitted=false、pending状态、answer_chars、原错误及recovery命令。先GET /records/<旧ID>，再POST /recover读取原轮次，不用新ID重发旧问题。新问题若确实要独立上下文，明确使用新的request_id及conversation_mode=new，且不传conversation_url；force_new=true是兼容别名，与continue或显式对话URL冲突时拒绝。旧版不支持force_new，可能将它静默忽略，因此迁移时推荐标准conversation_mode字段。新会话不继承旧历史，旧记录仍保留。缺少URL的未确认旧请求不再阻塞明确指定的其他对话。
+
 ### 网页提示刷新时
 
 站点可见alert/dialog的“请刷新页面”“Please refresh the page”，或网页正文区的明确Refresh/Reload按钮，会被归类refresh_required；不扫描助手回答正文来触发刷新。即使错误页暂时没有消息气泡，也先报告此错误，不误判为原消息丢失。
