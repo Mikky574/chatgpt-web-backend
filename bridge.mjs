@@ -308,7 +308,7 @@ export class BrowserBridge {
     if(refreshPage) {
       if(!record.user_message_id)throw new BridgeError('刷新恢复需要已确认的用户消息ID；提交不确定时不能自动刷新或重发');
       if((record.refresh_count||0)>=2)throw new BridgeError('已达到原请求的两次刷新上限，请人工检查网页');
-      const issue=await this.pageIssue(page);
+      const issue=record.network?.rate_limit_until>Date.now()?'rate_limited':await this.pageIssue(page);
       if(issue==='browser_verification'||issue==='rate_limited')throw new BridgeError('网页验证或限流需要人工处理，不通过刷新循环重试');
       const draft=await page.locator('[contenteditable="true"]:visible').evaluateAll(nodes=>nodes.some(n=>(n.innerText ?? n.textContent ?? '').trim()));
       if(draft)throw new BridgeError('页面输入框有未提交内容，停止刷新以免丢失草稿');
@@ -337,7 +337,13 @@ export class BrowserBridge {
     // The SPA can discard an inaccessible /c/ route and return to its home without an alert.
     // Confirm the current browser is authenticated before treating that redirect as context loss.
     if(record?.conversation_url&&/^https:\/\/chatgpt\.com\/?(?:\?|$)/.test(page.url())&&typeof page.evaluate==='function'){
-      return await page.evaluate(async()=>{try{const r=await fetch('/api/auth/session',{credentials:'same-origin',signal:AbortSignal.timeout(5000)});if(!r.ok)return false;const s=await r.json();return !!s.user;}catch{return false;}})===true;
+      this.authChecks ||= new WeakMap();
+      let check=this.authChecks.get(page);
+      if(!check||Date.now()-check.at>=60000){
+        check={at:Date.now(),result:page.evaluate(async()=>{try{const r=await fetch('/api/auth/session',{credentials:'same-origin',signal:AbortSignal.timeout(5000)});if(!r.ok)return false;const s=await r.json();return !!s.user;}catch{return false;}}).catch(()=>false)};
+        this.authChecks.set(page,check);
+      }
+      return await check.result===true;
     }
     return false;
   }
@@ -386,7 +392,7 @@ export class BrowserBridge {
       if(await this.conversationUnavailable(page,record)){await this.resetConversation(record,persist);return this.ask(record,persist,Math.max(1000,deadline-Date.now()));}
       await this.pin(page, record, persist);
       if (record.conversation_url && conversationUrl(page.url().split('?')[0]) !== conversationUrl(record.conversation_url)) throw new BridgeError('当前页面离开固定对话，停止读取');
-      const issue=await this.pageIssue(page);
+      const issue=record.network?.rate_limit_until>Date.now()?'rate_limited':await this.pageIssue(page);
       if(issue){
         record.status='awaiting_user_input';record.generation_complete=false;record.generation_status='blocked';record.incomplete=true;record.stage=issue;
         record.user_action={required:true,kind:issue,source:'visible_site_alert',certainty:'observed'};

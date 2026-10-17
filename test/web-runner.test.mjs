@@ -42,3 +42,14 @@ test('network observer correlates only this turn and never saves bodies or crede
  assert.ok(!JSON.stringify(record.network).includes('synthetic-secret'));assert.ok(!JSON.stringify(record.network).includes('approved test'));
  stop();assert.equal(page.listenerCount('request'),0);
 });
+
+test('passive observer detects history 429 without collecting URL identifiers or sending requests',async()=>{
+ const page=new EventEmitter(),record={question:'public'};const stop=monitorWebTurn(page,record);
+ const req={url:()=> 'https://chatgpt.com/backend-api/conversations?private=not-to-save'};
+ page.emit('response',{request:()=>req,status:()=>429,headerValue:async()=> '120'});
+ await new Promise(r=>setImmediate(r));
+ assert.equal(record.network.rate_limited,true);assert.equal(record.network.retry_after_ms,120000);
+ assert.ok(record.network.rate_limit_until>Date.now()+110000);
+ assert.equal(record.network.requests.length,0);assert.ok(!JSON.stringify(record.network).includes('not-to-save'));
+ stop();assert.equal(page.listenerCount('response'),0);
+});

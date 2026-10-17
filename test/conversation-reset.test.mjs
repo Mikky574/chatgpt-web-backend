@@ -23,7 +23,9 @@ test('closed browser tab is reopened at the same conversation URL',async()=>{
 test('authenticated home redirect counts as an inaccessible conversation, login failure does not',async()=>{
  const b=new BrowserBridge({},async()=>{}),record={conversation_url:'https://chatgpt.com/c/old'};
  let authenticated=true;const page={url:()=> 'https://chatgpt.com/',locator:()=>({evaluateAll:async()=>''}),evaluate:async()=>authenticated};
- assert.equal(await b.conversationUnavailable(page,record),true);authenticated=false;assert.equal(await b.conversationUnavailable(page,record),false);
+ assert.equal(await b.conversationUnavailable(page,record),true);authenticated=false;
+ assert.equal(await b.conversationUnavailable(page,record),true); // Cached, no repeated auth request.
+ b.authChecks.delete(page);assert.equal(await b.conversationUnavailable(page,record),false);
 });
 
 test('inaccessible submitted conversation rebuilds once and only replays current approved question',async()=>{
