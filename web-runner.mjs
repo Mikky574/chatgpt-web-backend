@@ -18,7 +18,7 @@ export function createWebRunner({backend='http://127.0.0.1:8787',timeoutMs=12000
   const result=await response.json();
   if(!result.request_id||result.request_id!==requestId){
     // A validation/capacity rejection happened before any browser submission.
-    if(result.request_submitted===false||[400,404,409,413,415].includes(response.status))return {request_id:requestId,status:'failed',generation_complete:false,generation_status:'not_started',request_submitted:false,error:result.error||'WEB_BACKEND_REJECTED'};
+    if(result.request_submitted===false||[400,404,409,413,415].includes(response.status))return {request_id:requestId,status:'failed',generation_complete:false,generation_status:'not_started',request_submitted:false,error:result.error||'WEB_BACKEND_REJECTED',blocking_request_id:result.request_id||null,pending:result.pending,guidance:result.guidance,recovery:result.recovery};
     const e=new Error('WEB_BACKEND_REJECTED');e.result=result;throw e;
   }
   if(sessionId&&result.conversation_url&&conversationUrl(sessionId)!==conversationUrl(result.conversation_url)&&!(result.context_reset?.reason==='conversation_unavailable'&&result.context_reset.from_url===sessionId&&result.context_reset.to_url===result.conversation_url&&result.context_reset.history_transferred===false))throw new Error('WEB_CONVERSATION_CHANGED');

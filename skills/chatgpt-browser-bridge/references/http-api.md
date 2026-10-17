@@ -4,6 +4,10 @@
 
 ## 对话身份
 
+优先通过8789/jobs队列或task-controller适配器调用。直接8787/ask必须明确conversation_mode，不能依赖默认对话来关联不同工作。8789/jobs首次省略conversation_url，续聊传实际返回URL；不要把8787专用字段混入8789请求。
+
+错误响应可包含guidance：确定性的诊断类别、next操作、禁止盲目重发的说明。unresolved_request中的request_id指阻塞旧轮次，当前问题尚未发送（request_submitted=false）；先GET /records/<旧ID>再POST /recover读取原轮次。确实需要独立上下文才新ID加conversation_mode=new，不传URL。force_new=true仅新版兼容，不应猜测其他force/reset参数；旧版本可能静默忽略，因此标准模式更可靠。8789转发冲突时自身request_id仍是当前作业，旧ID在blocking_request_id或guidance中，二者不能混淆。
+
 继续默认对话：POST /ask `{ "request_id": "unique-id", "question": "...", "conversation_mode": "continue" }`。
 
 新开独立对话：POST /ask `{ "request_id": "unique-id", "question": "...", "conversation_mode": "new" }`。新对话不继承旧上下文，也不覆盖默认对话。新对话的实际地址在响应 conversation_url 中。

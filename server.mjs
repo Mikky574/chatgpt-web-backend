@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { BrowserBridge } from './bridge.mjs';
 import {conversationUrl,projectUrl,projectForConversation} from './conversation-url.mjs';
 import {listProjects,createProject} from './web-projects.mjs';
+import {withGuidance} from './error-guidance.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
@@ -42,7 +43,7 @@ export async function createService({ directory = root, bridge: injected } = {})
   };
   return http.createServer(async (req, res) => {
     let ownsLock = false;
-    const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)); };
+    const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(withGuidance(body))); };
     // Reject cross-site browser requests; server only binds loopback.
     if (req.headers.origin || req.headers['sec-fetch-site'] === 'cross-site') return send(403, { error: 'Browser cross-origin calls are not accepted' });
     if (!/^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host || '')) return send(403, { error: 'Use 127.0.0.1' });

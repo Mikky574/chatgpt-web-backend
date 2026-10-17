@@ -13,6 +13,8 @@ description: 操作手在本地执行任务，遇到故障、需求歧义或方�
 
 ## 信息边界
 
+首次调用或遇到错误时先读[调用与恢复决策](references/calling-and-recovery.md)。必须区分本次request_id与阻塞旧请求ID，以及“未发送、发送不确定、生成已结束但需用户答复”。错误响应的guidance/recovery给出本地诊断步骤，不能把unresolved_request当成盲目换ID重发的许可，也不能臆造force参数。直接8787调用必须显式指定conversation_mode；优先使用任务适配器维护身份。
+
 后台排队：适配器自动发送queue=true，网页全局只执行1个作业，最多等待32个；同会话按顺序执行，不因busy换会话或换request_id。queued与running都未完成，超时后用recover读取原网页轮次，不重发问题。queue_full且request_submitted=false表示未接收，可稍后重新提交。服务重启后未完成作业标记interrupted，不自动继续执行。管理员可在http://127.0.0.1:8789/体验独立多会话；页面历史与操作手task_id映射分开，不能假定它们自动共享任务。
 
 禁止发送API Key、密码、访问令牌、私钥、Cookie、连接串中的凭据、个人或客户数据、未经批准的源码、diff、原始日志、内部地址和完整聊天。不要读取凭据文件来生成摘要，不把文件内容拼进请求，不在报告里展示敏感值。

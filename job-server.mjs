@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {mkdir,readFile,writeFile,rename,readdir} from 'node:fs/promises';
 import {conversationUrl,projectUrl,projectForConversation} from './conversation-url.mjs';
+import {withGuidance} from './error-guidance.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const validId=id=>typeof id==='string'&&/^[A-Za-z0-9_-]{1,80}$/.test(id);
 
@@ -42,7 +43,7 @@ export async function createJobService({directory=root,runner,maxConcurrency=1,m
       if(result.session_id){job.session_id=result.session_id;job.conversation_url=toRef(result.session_id);}job.answer=result.answer||'';job.usage=result.usage;
       job.generation_complete=result.generation_complete===true;job.status=result.status||(job.generation_complete?'completed':'interrupted');job.generation_status=result.generation_status||(job.generation_complete?'completed':'unknown');
       if(job.status==='completed'&&!job.generation_complete){job.status='interrupted';job.error='INCOMPLETE_WEB_RESULT';}
-      for(const key of ['user_action','retry','refresh','files','error','stage','submission_confirmed','network','context_reset','request_submitted'])if(result[key]!==undefined)job[key]=result[key];
+      for(const key of ['user_action','retry','refresh','files','error','stage','submission_confirmed','network','context_reset','request_submitted','guidance','blocking_request_id','pending','recovery'])if(result[key]!==undefined)job[key]=result[key];
       if(job.generation_complete){delete job.retry;delete job.refresh;delete job.error;}
     }catch(e){job.status=/TIMEOUT|INCOMPLETE|UNCERTAIN/.test(e.message)?'interrupted':'failed';job.error=/^[A-Z_]+$/.test(e.message)?e.message:'EXECUTION_FAILED';job.generation_status='blocked';if(e.result?.error)job.backend_error=e.result.error;}
     finally{
@@ -51,7 +52,7 @@ export async function createJobService({directory=root,runner,maxConcurrency=1,m
     }
   }
   const server=http.createServer(async(req,res)=>{
-    const send=(code,value)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
+    const send=(code,value)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(withGuidance(value,{port:8789})));};
     if((req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)||req.headers['sec-fetch-site']==='cross-site'||!/^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host||''))return send(403,{error:'loopback_program_calls_only'});
     let unlock;
     try {
