@@ -11,6 +11,8 @@ export function classifyReply(answer) {
 
 // Labels of explicit expand/collapse controls the page renders inside a bubble.
 export const COLLAPSE_CONTROL = /^(收起|展开|显示更多|显示更少|show (?:less|more))$/i;
+// Contenteditable paragraphs may introduce extra blank lines; never remove words or compare prefixes.
+export function normalizedComposerText(value){return (value||'').replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/\n(?:[ \t]*\n)+/g,'\n').trim();}
 export function classifyGenerationFailure(text) {
   if (/cloudflare_challenge|cf-chl-|verify you are human|验证您是真人|人机验证/i.test(text)) return 'browser_verification';
   if (/too many requests|rate limit|达到.*限额|请求过多/i.test(text)) return 'rate_limited';
@@ -36,10 +38,10 @@ export function isConversationUnavailable(text){
 // injects an expand/collapse button whose label ("收起"/"Show less") would
 // otherwise be read as body text, so that button is hidden before reading.
 export function findUserMessageIndex(messages, question, startIndex = 0) {
-  const sent = (question || '').trim();
+  const sent = normalizedComposerText(question);
   if (!sent) return -1;
   for (let index = Math.max(0, startIndex); index < messages.length; index++) {
-    if (messages[index].role === 'user' && (messages[index].text || '').trim() === sent) return index;
+    if (messages[index].role === 'user' && normalizedComposerText(messages[index].text) === sent) return index;
   }
   return -1;
 }
@@ -214,8 +216,14 @@ export class BrowserBridge {
     await persist(record);
     record.stage='filling_composer';await persist(record);
     await input.fill(record.question);
-    if((await input.innerText()).trim()!==record.question.trim())throw new BridgeError('输入框文本未与本次问题一致，停止提交');
+    let actual='';const fillDeadline=Date.now()+2000;
+    do{actual=await input.innerText();if(normalizedComposerText(actual)===normalizedComposerText(record.question))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
+    if(normalizedComposerText(actual)!==normalizedComposerText(record.question)){
+      record.request_submitted=false;record.submission_confirmed=false;record.composer_diagnostics={expected_chars:record.question.length,actual_chars:actual.length,normalization:'line_endings_blank_lines_nbsp'};
+      throw new BridgeError('输入框文本未与本次问题一致，停止提交');
+    }
     record.stage='submitting';await persist(record);
+    record.submit_attempted=true;delete record.request_submitted;await persist(record);
     await this.submit(page,input,record,persist);
     record.status = 'waiting';
     record.stage='waiting_answer';
@@ -251,6 +259,10 @@ export class BrowserBridge {
     throw new BridgeError('未观察到本次用户消息：发送尚未确认。请检查网页输入框及提示；保留原请求ID，勿自动重发');
   }
   async recover(record, persist, timeoutMs, {refreshPage=false} = {}) {
+    if(record.request_submitted===false||(record.stage==='filling_composer'&&!record.submit_attempted&&!record.submission_confirmed&&!record.user_message_id)){
+      record.request_submitted=false;record.status='blocked';record.error='本轮在输入校验阶段停止，未执行发送；修正输入后用新请求提交，勿恢复到默认对话';await persist(record);return record;
+    }
+    if(!record.conversation_url&&record.conversation_mode==='new')throw new BridgeError('新会话未保存实际对话地址，停止恢复；不回退到默认对话');
     record.conversation_url ||= this.config.conversation_url;
     if (!record.conversation_url) throw new BridgeError('未保存对话地址，无法安全恢复；请在浏览器确认提问是否提交');
     const page = await this.page(record);

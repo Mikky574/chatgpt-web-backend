@@ -128,7 +128,7 @@ export async function createService({ directory = root, bridge: injected } = {})
           const pending = await read(name.slice(0, -5));
           const targetUrl = input.conversation_url || config.conversation_url;
           const sameContext = mode !== 'new' && (pending?.conversation_url?conversationUrl(pending.conversation_url)===conversationUrl(targetUrl):!targetUrl);
-          if (sameContext && pending && pending.before_count !== undefined && pending.status !== 'completed' && !pending.generation_complete) return send(409, {
+          if (sameContext && pending && pending.request_submitted!==false&&pending.before_count !== undefined && pending.status !== 'completed' && !pending.generation_complete) return send(409, {
             error:'unresolved_request',request_id:pending.request_id,request_submitted:false,
             pending:{status:pending.status,stage:pending.stage||null,conversation_url:pending.conversation_url||null,submission_confirmed:pending.submission_confirmed===true,answer_chars:pending.answer?.length||0,updated_at:pending.updated_at||null,error:pending.error||null},
             recovery:{method:'POST',path:'/recover',body:{request_id:pending.request_id,timeout_ms:120000}},

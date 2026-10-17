@@ -103,6 +103,8 @@ generation_complete=true表示网页回答生成结束，不代表用户整个�
 
 ### unresolved_request 不是网页busy
 
+输入阶段失败：filling_composer提示文本不一致时，不能据此判断会话失效。富文本innerText可能引入额外空行，校验仅归一化CRLF、连续空行及NBSP，仍完整比对文字；发送意图单独保存submit_attempted。未执行发送的输入失败返回request_submitted=false，不再占用未完成对话保护。旧版此阶段遗留记录recover一次可识别为未发送。新会话没有实际URL时禁止回退默认对话恢复，避免串上下文。该路径以回归测试验证，目标环境具体编辑器差异仍需实测。
+
 直接调用8787/ask且省略conversation_mode会续用默认对话。同对话存在未完成且可能已经提交的旧轮次时返回409 unresolved_request；本次输入未发送。响应包含request_submitted=false、pending状态、answer_chars、原错误及recovery命令。先GET /records/<旧ID>，再POST /recover读取原轮次，不用新ID重发旧问题。新问题若确实要独立上下文，明确使用新的request_id及conversation_mode=new，且不传conversation_url；force_new=true是兼容别名，与continue或显式对话URL冲突时拒绝。旧版不支持force_new，可能将它静默忽略，因此迁移时推荐标准conversation_mode字段。新会话不继承旧历史，旧记录仍保留。缺少URL的未确认旧请求不再阻塞明确指定的其他对话。
 
 ### 网页提示刷新时

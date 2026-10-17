@@ -20,6 +20,8 @@
 ## 错误决策
 
 1. **request_submitted=false**：本次输入没有发送。可修正参数或等待容量后重新提交；不要把这个返回误认为主控已收到请求。
+
+   stage=filling_composer且提示“输入框文本未与本次问题一致”时，是输入校验失败，不是登录失效证据。新版归一化富文本换行/空行并短暂等候编辑器更新；仍不匹配则明确未发送并解除pending。旧记录可recover一次，让适配器识别该未提交状态，再使用同task_id ask新一轮。不要把无URL的新请求恢复到默认对话，不要仅因context_reset字段就断言账号过期。
 2. **unresolved_request**：响应request_id可能是阻塞的旧轮次ID，而不是刚提交的ID。查看guidance.blocking_request_id、blocking_request_id或recovery.body.request_id。GET旧记录，再recover旧轮次。保留本次尚未发送的问题，不能不断换ID撞锁。若用户确实另开独立话题，使用新会话，不自动迁移旧历史。
 3. **busy/queue_full**：查看active、队列和request_submitted。未受理才等待后再提交；已受理查询原ID。不要开更多网页或切账号绕锁。
 4. **timeout/断线/interrupted**：提交可能已发生，先GET和recover原ID。stage=submitting但submission_confirmed=false表示不确定，不表示肯定没发送；空answer也不证明没送达。

@@ -3,7 +3,8 @@ export function withGuidance(body,{port=8787}={}){
  if(!body?.error||body.guidance)return body;
  const id=body.request_id;
  let guidance;
- if(body.error==='unresolved_request')guidance={code:'RECOVER_PREVIOUS_TURN',current_question_submitted:false,blocking_request_id:id,
+ if(body.request_submitted===false&&body.stage==='filling_composer')guidance={code:'COMPOSER_NOT_SUBMITTED',action:'本轮未执行发送，不是登录失效证据。任务适配器可解除pending；修正输入格式后新请求提交。不要恢复到默认对话。',request_id:id};
+ else if(body.error==='unresolved_request')guidance={code:'RECOVER_PREVIOUS_TURN',current_question_submitted:false,blocking_request_id:id,
    next:[{method:'GET',url:`http://127.0.0.1:8787/records/${id}`},{method:'POST',url:'http://127.0.0.1:8787/recover',body:{request_id:id,timeout_ms:120000}}],
    alternative:'仅确实需要独立上下文时，新request_id加conversation_mode=new，不传conversation_url。',
    do_not:['不要重复提交本次问题来解锁','不要自动清空旧记录','不要把旧请求ID用作新问题ID']};
