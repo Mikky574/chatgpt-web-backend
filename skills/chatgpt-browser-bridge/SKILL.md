@@ -5,6 +5,10 @@ description: 通过已登录浏览器在固定 ChatGPT 对话中提问、读取�
 
 使用用户已登录的 ChatGPT 环境，把同一工作主题维护在固定对话中。项目提供 server.mjs 后端及 bridge.mjs CDP 客户端。2026-10-14 已完成真实网页回答读取和超时恢复验证；每次启动仍需检查实际连接状态。
 
+当前推荐start.bat启动：8789为聊天页与队列，8787为浏览器后端。用consult-web.mjs new/continue/recover保持请求与会话身份；网页全局串行，最多排队32个。GET /jobs/<request_id>查询queued/running及stage，GET 8787/records/<request_id>查询原轮次、发送确认与network请求元数据。先读项目docs/web-controller.md了解页面触发、被动网络观察及认证边界。浏览器前端自行构造认证与流式请求，本项目不导出令牌；脱离页面的直接接口此前403，不能声称已经打通独立HTTP调用。
+
+正常调用复用标签页，不切换Chrome到前台；单上下文中新标签用CDP background=true建立并核对target身份。需要人工登录/验证时提示用户，不自动弹出窗口。失效路由跳回首页时仅在浏览器内确认仍已登录后重建会话，不读取账号值或凭据到Node。
+
 ## 启动与登录复用
 
 Windows 上先检查 http://127.0.0.1:9222/json/version。若已返回 webSocketDebuggerUrl，复用此浏览器，不再启动新配置。若不可达且用户要求启动服务，执行本技能的 scripts/start-browser.ps1。脚本寻找已安装的 Google Chrome，绑定本机 9222，固定使用 `$env:LOCALAPPDATA\ChatGPT-CDP-Profile`。这个目录已由用户完成首次 ChatGPT 登录；后续始终复用它，不清空、不替换、不改为 `$PWD` 下的目录。不需要登录 Google 账号；只有 ChatGPT 会话过期时才请用户重新登录 ChatGPT。工具审批阻止启动时如实说明，不更换执行方式绕过阻止。
@@ -19,7 +23,7 @@ ZCode 作为执行侧时，由 ZCode 管理模型连接和凭据。本项目不�
 
 调用前读 [HTTP 接口与状态约定](references/http-api.md)。默认 continue 复用默认对话；用户要求独立上下文时显式 new。继续某个新建对话时传回其 conversation_url 并使用 continue。每轮一个新 request_id；重试同一次提问保持原 ID。新建对话不覆盖默认对话，不能把新对话的回复并入旧对话上下文。
 
-通过 GET /status 确认 conversation_url 和浏览器接入状态；若有项目文件访问权限，也可读取 conversation.json。URL 为空时，后端首次默认提问后保存实际的 /c/ 对话地址；首页链接不是固定对话地址。找不到对话时报告原因，不静默替换。
+通过 GET /status 确认 conversation_url 和浏览器接入状态；若有项目文件访问权限，也可读取 conversation.json。URL 为空时，后端首次默认提问后保存实际的 /c/ 对话地址；首页链接不是固定对话地址。关闭标签页后按原URL重新打开。明确出现“你无权访问此对话”、对话不存在或无法加载时，按用户授权新建一次，只发送当前批准问题，不搬运旧历史；返回context_reset并更新绑定，说明旧上下文已失去。一般网络、登录、验证故障不能冒充此错误自动换对话。
 
 优先调用本地服务 http://127.0.0.1:8787：GET /status 检查连接，POST /ask 提问，POST /recover 恢复读取，GET /records/{request_id} 读取本地记录。POST 使用 application/json，字段 question、request_id、timeout_ms。根据 status 处理结果，而非把所有 HTTP 错误当成可重发请求。更多边界见 [接口约定](references/bridge-contract.md) 与项目 README.md。仅有本地模型推理服务无法执行此流程，宿主程序需提供 HTTP 工具能力。无法连接时明确返回 blocked，不编造网页回答。
 

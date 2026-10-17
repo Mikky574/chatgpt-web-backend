@@ -1,5 +1,8 @@
 # 网页 ChatGPT 本地后端
 
+默认使用已登录的 ChatGPT 网页能力：`start.bat`启动网页后端8787、聊天体验页与队列8789，以及已有的操作手界面3030。不是其他模型或CLI替代调用。[页面拆解、网络监控与认证机制](docs/web-controller.md)记录具体链路、实测与限制。
+
+
 本地程序通过 HTTP 提问，后端用 Playwright/CDP 操作已登录的 ChatGPT 网页，并复用同一个对话。它是网页自动化桥接，回答来自浏览器页面。2026-10-14 已在 Chrome 155、当前 ChatGPT 页面完成真实回答读取及超时恢复验证。网页结构以后变化时可能需要更新选择器。
 
 ## 启动
@@ -63,6 +66,8 @@ Invoke-RestMethod 'http://127.0.0.1:8787/ask' -Method Post -ContentType 'applica
 框架与使用注意事项见 [docs/framework.md](docs/framework.md)。
 
 ## ZCode 执行 + GPT 决策
+
+迁移、多对话冲突与真实流式接口探索结果见 [传输重构审查](docs/transport-redesign.md)。当前网页桥接仍是实验方案，独立HTTP调用尚未跑通。
 
 消息发送、登录复用、固定对话与排错链路见 [详细链路说明](docs/message-delivery-chain.md)。
 

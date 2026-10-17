@@ -4,6 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+export async function loadRoleConfig(directory=root) {
+  const configured=process.env.ROLE_CONFIG;
+  try{return JSON.parse(await readFile(configured?path.resolve(directory,configured):path.join(directory,'role-collaboration.json'),'utf8'));}
+  catch(e){if(e.code!=='ENOENT'||configured)throw e;return JSON.parse(await readFile(path.join(directory,'role-collaboration.example.json'),'utf8'));}
+}
 const [operation, id, packetFile, conversationUrl] = process.argv.slice(2);
 export function validatePacket(packet) {
   const allowed = ['task_id', 'goal', 'constraints', 'observations', 'questions', 'project_structure', 'file_roles', 'symptoms', 'expected_behavior', 'evidence', 'hypotheses', 'options', 'unknowns'];
@@ -35,12 +40,10 @@ export function renderControllerMessage(packet) {
 
 if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
   try {
-    if (!['new','continue','recover','retry'].includes(operation)) throw new Error('Usage: node consult-controller.mjs new|continue|recover|retry ID PACKET.json [URL]');
-    let config;
-    try { config=JSON.parse(await readFile(path.join(root,'role-collaboration.json'),'utf8')); }
-    catch(e) { if(e.code!=='ENOENT') throw e;config=JSON.parse(await readFile(path.join(root,'role-collaboration.example.json'),'utf8')); }
+    if (!['new','continue','recover','retry','refresh'].includes(operation)) throw new Error('Usage: node consult-controller.mjs new|continue|recover|retry|refresh ID PACKET.json [URL]');
+    const config=await loadRoleConfig();
     let summaryFile;
-    if(!['recover','retry'].includes(operation)) {
+    if(!['recover','retry','refresh'].includes(operation)) {
       const packet=validatePacket(JSON.parse(await readFile(packetFile,'utf8')));
       const {mkdir,writeFile}=await import('node:fs/promises');
       if(!/^[A-Za-z0-9_-]{1,80}$/.test(id||''))throw new Error('Invalid request ID');
@@ -49,7 +52,7 @@ if (process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta
       await writeFile(summaryFile,renderControllerMessage(packet));
     }
     const c=config.controller;
-    const args=[path.resolve(root,c.script),operation,id,...(['recover','retry'].includes(operation)?[]:[summaryFile,...(conversationUrl?[conversationUrl]:[])])];
+    const args=[path.resolve(root,c.script),operation,id,...(['recover','retry','refresh'].includes(operation)?[]:[summaryFile,...(conversationUrl?[conversationUrl]:[])])];
     const result=spawnSync(c.command,args,{cwd:root,env:{...process.env,GPT_BACKEND:c.backend},stdio:'inherit',shell:false});
     if(result.error)throw result.error;process.exitCode=result.status ?? 1;
   } catch(e) { console.error(e.message);process.exitCode=1; }

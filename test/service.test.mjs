@@ -30,6 +30,11 @@ test('completed request is persisted and idempotent, conflicting payload rejecte
   assert.equal(saved.answer, '网页回答');
 });
 
+test('official project creation endpoint accepts a name without a chat request ID and reuses existing project',async t=>{
+ const id='g-p-0123456789abcdef0123456789abcdef',bridge={connect:async()=>({contexts:()=>[{pages:()=>[{url:()=> 'https://chatgpt.com/',locator:()=>({evaluateAll:async()=>[{id,name:'Public demo'}]})}]}]})};
+ const {post}=await fixture(t,bridge);const response=await post('/projects',{name:'Public demo'});assert.equal(response.status,200);assert.equal((await response.json()).project.reused,true);
+});
+
 test('timeout blocks new submission, recover reads without submitting again', async t => {
   let submitted = 0;
   const bridge = {
@@ -56,6 +61,17 @@ test('concurrent requests never reach browser together', async t => {
   assert.equal((await post('/ask', { request_id: 'second', question: '另一问题' })).status, 409);
   release();
   assert.equal((await first).status, 200);
+});
+
+test('bounded waiting serializes requests and busy identifies the actual owner',async t=>{
+ let release,started;const running=new Promise(r=>{started=r});const gate=new Promise(r=>{release=r});const seen=[];
+ const {post,base}=await fixture(t,{ask:async r=>{seen.push(r.request_id);if(r.request_id==='owner'){started();await gate;}return {...r,status:'completed',generation_complete:true};}});
+ const first=post('/ask',{request_id:'owner',question:'one',conversation_mode:'new'});await running;
+ const conflict=await (await post('/ask',{request_id:'conflict',question:'two',conversation_mode:'new'})).json();assert.equal(conflict.active.request_id,'owner');assert.equal(conflict.request_submitted,false);
+ const health=await(await fetch(base+'/health')).json();assert.equal(health.active.request_id,'owner');
+ const second=post('/ask',{request_id:'waiter',question:'two',conversation_mode:'new',wait_for_slot_ms:1000});release();
+ assert.equal((await first).status,200);assert.equal((await second).status,200);assert.deepEqual(seen,['owner','waiter']);
+ assert.equal((await(await fetch(base+'/health')).json()).active,null);
 });
 
 test('invalid IDs, browser cross-origin calls, and disconnected CDP fail clearly', async t => {

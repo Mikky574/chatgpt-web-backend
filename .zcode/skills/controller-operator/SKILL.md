@@ -5,7 +5,15 @@ description: 操作手在本地执行任务，遇到故障、需求歧义或方�
 
 你是操作手，主控手负责需求决策、约束和验收建议。调用始终由操作手发起。协作不绑定对方模型、产品或供应商，也不在每次提问重复介绍角色；具体调用方式由本地 role-collaboration.json 配置（不存在时读取示例配置）。更换主控需实现兼容 new/continue/recover 的命令适配器；更换操作手只需提供本地文件和命令工具，配置名称本身不会生成新能力。
 
+当前默认使用ChatGPT网页通道，通过start.bat启动。consult-web.mjs调用127.0.0.1:8789的队列，再由8787操作已登录浏览器。固定会话引用为https://chatgpt.com/c/<id>，同一task_id不能更换provider。凭据留在浏览器配置，不读取、导出或写入摘要。旧的其他provider任务不能迁移为同一个网页对话。机制、监控与故障定位见docs/web-controller.md。
+
+浏览器正常在后台运行，不因每次提问弹出或激活窗口。只有需要人工登录/验证时提示用户处理。失效URL跳回首页时须确认仍已登录，才按对话失效重建；重新绑定不代表恢复旧上下文。
+
+官网项目可选：默认普通对话。用户要求按官网项目工作时，GET http://127.0.0.1:8789/projects读取已加载项目，按明确URL复用；需要新建时POST /projects，JSON为{name:项目名称}，同名唯一则复用，结果不确定先查列表。首次 `node task-controller.mjs ask <task_id> <packet.json> <官网project_url>`，后续仍用同task_id，项目URL只作本机控制元数据，不塞进提问正文。项目对话URL包含/g/g-p-…/c/…，普通对话是/c/…；不得互换或把失败项目静默挪到普通聊天。项目默认记忆不构成严格隔离，不从模型口头声称记住的内容推断绑定正确；以URL、消息ID及本地记录为准。
+
 ## 信息边界
+
+后台排队：适配器自动发送queue=true，网页全局只执行1个作业，最多等待32个；同会话按顺序执行，不因busy换会话或换request_id。queued与running都未完成，超时后用recover读取原网页轮次，不重发问题。queue_full且request_submitted=false表示未接收，可稍后重新提交。服务重启后未完成作业标记interrupted，不自动继续执行。管理员可在http://127.0.0.1:8789/体验独立多会话；页面历史与操作手task_id映射分开，不能假定它们自动共享任务。
 
 禁止发送API Key、密码、访问令牌、私钥、Cookie、连接串中的凭据、个人或客户数据、未经批准的源码、diff、原始日志、内部地址和完整聊天。不要读取凭据文件来生成摘要，不把文件内容拼进请求，不在报告里展示敏感值。
 
@@ -37,12 +45,14 @@ description: 操作手在本地执行任务，遇到故障、需求歧义或方�
    packet.json是本地校验与管理格式，不是主控消息格式。发送脚本自动移除task_id并渲染为Markdown，request_id、URL、轮次和本地状态不写入问题正文。不要在goal或其他正文里重复任务编号来绕过此分离。先用一两句说明具体目标或待决策问题，再只补必要约束与事实；空段落省略，不凑齐全部字段，不堆砌项目清单。回复长度、验收例数量等要求写入questions或constraints。相同对话后续只说明变化和实际结果，不重述全套角色或制度。
 
    例：现象是“网页有回答但本地超时”；证据是“消息末尾包含折叠按钮文字，正文匹配失败”；候选方案是“仅排除明确控件，保留严格消息匹配与明确完成信号”；具体问题是“请指出此修复可能遗漏的串答场景，并给出可验证反例”。task_id只在本地关联对话。事实、假设和验证限制分别写清。
-3. 读取返回state.last_result。仅 generation_complete=true且status=completed 可进入本地评估。awaiting_user_input向用户转述并暂停；blocked、failed排查；timeout或提交不确定使用 `node task-controller.mjs recover <task_id>`，脚本复用原request_id，未解决前拒绝新提问。返回对话与已存身份不一致时停止人工核对。原对话不可访问时不得静默新建。
+3. 读取返回state.last_result。仅 generation_complete=true且status=completed 可进入本地评估。awaiting_user_input向用户转述并暂停；blocked、failed排查；timeout或提交不确定使用 `node task-controller.mjs recover <task_id>`，脚本复用原request_id，未解决前拒绝新提问。关闭网页标签时重开原URL；明确显示“你无权访问此对话”、对话不存在或无法加载时，按用户授权新建一次，仅重新发送当前批准问题。返回context_reset必须记录旧/新URL和history_transferred=false，任务自动保存新绑定并向用户说明上下文已重建；旧历史不能自动跨账号传送。其他无解释的URL变化仍停止人工核对，不把网络、登录或限流错误当作对话失效。
 4. 在用户授权范围内执行已接受建议、实际运行测试。保留源码和原始证据在本地。主控分配的任务完成或阻塞后必须回传逐项反馈；自行完成的常规任务无未解决问题时直接交付。新证据改变判断或仍有取舍时回到同一主控对话。默认最多3轮；主控认可不替代本地验收，达到上限向用户报告进度，不把未完成标成完成。
 5. 用户可在操作手对话随时补充。更新本地需求版本，下一轮仅发送可披露的新约束；已提交请求先读取或恢复，防止重复执行。需要用户确认或达到轮数上限时停止并清楚说明。
 
 最终交付实际修改、测试、主控对话链接及剩余限制，不编造工具执行或对方回复。
 
 网页重试控制：timeout或断线先 `node task-controller.mjs recover <task_id>`，只读原请求。返回retry.allowed=true且category=generation_failed时，可 `node task-controller.mjs retry <task_id>` 点击原问题轮次的唯一重试按钮，每个原请求最多两次，不能新ID重发。点击意图先持久化；结果不确定先recover，不能盲目再点。browser_verification或rate_limited必须暂停，让用户处理验证或等待限制恢复，不自动点击重试、不绕过验证。后续已有其他用户问题、原消息未锚定或重试次数已达上限时禁止重试。retry与recover不需要摘要文件。
+
+网页刷新控制：返回refresh.allowed=true、category=refresh_required时，用 `node task-controller.mjs refresh <task_id>` 刷新原ChatGPT页后恢复读取，不重新发送问题。仅站点错误提示或明确刷新控件触发此分类，回答正文提及刷新不算错误。需要已保存消息ID与原URL，无草稿、无活动生成、无后续新用户消息，每个请求最多两次刷新。验证/限流不循环刷新；未确认发送或超过上限时保留现场供用户核对。
 
 摘要脚本只校验字段、长度、路径及部分常见凭据格式；它不能识别所有敏感内容，也不能阻止其他工具绕过。因此仍需内容审查，本技能不等于强制保密网关。内部项目的强制出站控制必须单独部署。

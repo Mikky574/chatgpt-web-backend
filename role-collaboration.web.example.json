@@ -1,0 +1,9 @@
+{
+  "controller": {
+    "provider": "chatgpt-web",
+    "command": "node",
+    "script": "consult-web.mjs",
+    "backend": "http://127.0.0.1:8789"
+  },
+  "max_rounds": 3
+}

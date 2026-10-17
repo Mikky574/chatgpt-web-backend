@@ -2,9 +2,9 @@
 
 ## 当前机器
 
-双击项目根目录 `start.bat`：检查并复用固定Chrome CDP配置，启动GPT网页后端，启动当前已构建的操作手网页服务，打开 http://127.0.0.1:3030/ 。已运行的服务复用，不重复启动。双击 `stop.bat`：按PID和启动时间只停止本脚本启动的服务；浏览器、登录配置与任务历史保留。启动前已存在的服务不属于本脚本，关闭其原终端或原应用即可；stop不会终止未知进程。
+双击项目根目录 `start.bat`：复用固定Chrome CDP登录环境，启动网页后端8787、聊天体验页与队列8789，以及已有操作手界面3030。打开http://127.0.0.1:8789/体验，不自动新增浏览器标签页。`start-web.bat`与默认启动采用同一网页通道。认证、接口与实测见[网页通道说明](web-controller.md)。已运行的服务复用，不重复启动。双击 `stop.bat`：按PID和启动时间只停止本脚本启动的服务；浏览器、登录配置与任务历史保留。启动前已存在的服务不属于本脚本，关闭其原终端或原应用即可；stop不会终止未知进程。
 
-启动和关闭可能中断正在进行的操作，结束任务后再关闭。进程状态保存在 records/runtime/services.json，日志在该目录。端口8787为主控网页后端，9222为CDP，3030为当前操作手界面，全部仅本机访问。启动失败时查看对应日志；执行 `powershell -NoProfile -File scripts/manage-services.ps1 -Action check` 只检查状态。
+启动和关闭可能中断正在进行的操作，结束任务后再关闭。进程状态保存在 records/runtime/services.json，日志在该目录。端口8789为聊天页与队列，8787为网页后端，9222为CDP，3030为当前操作手界面，全部仅本机访问。启动失败时查看对应日志；执行 `powershell -NoProfile -File scripts/manage-services.ps1 -Action check` 只检查状态。
 
 本机操作手运行时来自已构建源码 `%LOCALAPPDATA%\ZCode-CLI\ZCode-main`，Node来自其上级toolchain目录。可用环境变量ZCODE_SOURCE指定其他源码根目录。脚本不安装或重建操作手，不读取模型密钥。浏览器配置固定为 `%LOCALAPPDATA%\ChatGPT-CDP-Profile`，首次登录后持续复用；会话过期仍需重新登录。
 

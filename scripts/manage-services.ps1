@@ -1,4 +1,4 @@
-param([ValidateSet('start','stop','check')][string]$Action='check')
+param([ValidateSet('start','stop','check')][string]$Action='check',[ValidateSet('web')][string]$Transport='web')
 $ErrorActionPreference='Stop'
 $projectRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $runtime=Join-Path $projectRoot 'records\runtime'
@@ -6,7 +6,7 @@ $stateFile=Join-Path $runtime 'services.json'
 function Test-Endpoint([string]$Url) {
   try { $request=[Net.HttpWebRequest]::Create($Url); $request.Proxy=$null; $request.Timeout=3000; $response=$request.GetResponse(); $response.Close(); return $true } catch { return $false }
 }
-if($Action -eq 'check') { foreach($item in @(@('GPT','http://127.0.0.1:8787/health'),@('CDP','http://127.0.0.1:9222/json/version'),@('Operator UI','http://127.0.0.1:3030/'))) { Write-Output "$($item[0]): $(Test-Endpoint $item[1])" }; exit 0 }
+if($Action -eq 'check') { foreach($item in @(@('Chat UI / queue','http://127.0.0.1:8789/health'),@('Browser backend','http://127.0.0.1:8787/health'),@('CDP','http://127.0.0.1:9222/json/version'),@('Operator UI','http://127.0.0.1:3030/'))) { Write-Output "$($item[0]): $(Test-Endpoint $item[1])" }; exit 0 }
 if($Action -eq 'stop') {
   if(!(Test-Path -LiteralPath $stateFile)) { Write-Output 'No services owned by start.bat. Existing services and browser were kept.'; exit 0 }
   # Cast to a raw array: ConvertFrom-Json wraps a JSON array in a PSObject that
@@ -22,8 +22,10 @@ if($Action -eq 'stop') {
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
 $node=(Get-Command node.exe -ErrorAction Stop).Source
 if(!(Test-Path -LiteralPath (Join-Path $projectRoot 'node_modules\playwright-core'))) { throw 'Dependencies missing. Run npm ci in this folder first.' }
-& (Join-Path $projectRoot 'skills\chatgpt-browser-bridge\scripts\start-browser.ps1')
-if($LASTEXITCODE -ne 0) { throw 'Browser startup failed' }
+if($Transport -eq 'web') {
+  & (Join-Path $projectRoot 'skills\chatgpt-browser-bridge\scripts\start-browser.ps1')
+  if($LASTEXITCODE -ne 0) { throw 'Browser startup failed' }
+}
 $owned=@()
 if(Test-Path -LiteralPath $stateFile) { $owned=[object[]](Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json) }
 function Start-Owned([string]$Name,[string]$Executable,[string]$Script,[string]$Endpoint) {
@@ -37,7 +39,14 @@ function Start-Owned([string]$Name,[string]$Executable,[string]$Script,[string]$
 # Pin the backend port explicitly. The operator launch below sets PORT=3030 in this
 # process, and an inherited PORT must not redirect the backend onto the operator port.
 $env:PORT='8787'
-Start-Owned 'gpt' $node (Join-Path $projectRoot 'server.mjs') 'http://127.0.0.1:8787/health'
+if($Transport -eq 'web') {
+  Start-Owned 'gpt' $node (Join-Path $projectRoot 'server.mjs') 'http://127.0.0.1:8787/health'
+  if(Test-Endpoint 'http://127.0.0.1:8789/health'){
+    $gatewayHealth=Invoke-RestMethod 'http://127.0.0.1:8789/health'
+    if($gatewayHealth.provider -ne 'chatgpt-web'){throw 'Port 8789 belongs to another provider. Stop the owned old service before starting the web chat.'}
+  }
+  Start-Owned 'web-ui' $node (Join-Path $projectRoot 'web-gateway.mjs') 'http://127.0.0.1:8789/health'
+}
 if(!(Test-Endpoint 'http://127.0.0.1:3030/')) {
   $install=Join-Path $env:LOCALAPPDATA 'ZCode-CLI'
   $source=if($env:ZCODE_SOURCE){$env:ZCODE_SOURCE}else{Join-Path $install 'ZCode-main'}
@@ -52,4 +61,4 @@ if(!(Test-Endpoint 'http://127.0.0.1:3030/')) {
   $env:ZCODE_AGENT_SERVER_ARGS_JSON=ConvertTo-Json -Compress -InputObject @($agentScript,'app-server','--stdio')
   Start-Owned 'operator' $operatorNode $serverScript 'http://127.0.0.1:3030/'
 }
-Write-Output 'Ready: http://127.0.0.1:3030/ . Open it in the browser you already use; use stop.bat to stop only services launched by this script.'
+Write-Output 'Chat: http://127.0.0.1:8789/ ; Operator: http://127.0.0.1:3030/ . Use stop.bat to stop only owned services.'

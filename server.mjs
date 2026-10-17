@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { BrowserBridge } from './bridge.mjs';
+import {conversationUrl,projectUrl,projectForConversation} from './conversation-url.mjs';
+import {listProjects,createProject} from './web-projects.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
@@ -25,13 +27,15 @@ export async function createService({ directory = root, bridge: injected } = {})
   await mkdir(records, { recursive: true });
   const bridge = injected || new BrowserBridge(config, value => atomicJson(configFile, value));
   let busy = false;
+  let active = null;
+  const busyState=()=>active?{...active,elapsed_ms:Date.now()-active.started_at_ms}:null;
   const read = async id => {
     try { return JSON.parse(await readFile(path.join(records, id + '.json'), 'utf8')); }
     catch (e) { if (e.code === 'ENOENT') return null; throw e; }
   };
   const persist = async record => {
     record.updated_at = new Date().toISOString();
-    if (!record.conversation_url && record.conversation_mode !== 'new') record.conversation_url = config.conversation_url;
+    if (!record.conversation_url && record.conversation_mode !== 'new'&&!record.context_reset_pending) record.conversation_url = config.conversation_url;
     record.record_path = path.join(records, record.request_id + '.json');
     await atomicJson(record.record_path, record);
     await writeFile(path.join(records, record.request_id + '.md'), `# ${record.request_id}\n\n状态：${record.status}\n\n对话：${record.conversation_url || '尚未建立'}\n\n## 问题\n\n${record.question}\n\n## 回答\n\n${record.answer || ''}\n`, 'utf8');
@@ -44,11 +48,12 @@ export async function createService({ directory = root, bridge: injected } = {})
     if (!/^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host || '')) return send(403, { error: 'Use 127.0.0.1' });
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
-      if (req.method === 'GET' && url.pathname === '/health') return send(200, { service: 'chatgpt-web-backend', busy });
-      if (req.method === 'GET' && url.pathname === '/status') return send(200, { ...await bridge.status(), busy });
+      if (req.method === 'GET' && url.pathname === '/health') return send(200, { service: 'chatgpt-web-backend', busy, active:busyState() });
+      if (req.method === 'GET' && url.pathname === '/status') return send(200, { ...await bridge.status(), busy, active:busyState() });
+      if(req.method==='GET'&&url.pathname==='/projects')return send(200,{projects:await listProjects(bridge)});
       const recordMatch = url.pathname.match(/^\/records\/([a-zA-Z0-9_-]{1,80})$/);
       if (req.method === 'GET' && recordMatch) { const record = await read(recordMatch[1]); return send(record ? 200 : 404, record || { error: 'record_not_found' }); }
-      if (req.method !== 'POST' || !['/ask', '/recover', '/download', '/files'].includes(url.pathname)) return send(404, { error: 'not_found' });
+      if (req.method !== 'POST' || !['/ask', '/recover', '/download', '/files','/projects'].includes(url.pathname)) return send(404, { error: 'not_found' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'Use application/json' });
       let body = '';
       for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 65536) return send(413, { error: 'body_too_large' }); }
@@ -57,21 +62,34 @@ export async function createService({ directory = root, bridge: injected } = {})
       if (!input || typeof input !== 'object' || Array.isArray(input)) return send(400, { error: 'invalid_body' });
       const id = input.request_id ?? randomUUID();
       if (!validId(id)) return send(400, { error: 'invalid_request_id' });
-      if (url.pathname !== '/ask' && !input.request_id) return send(400, { error: 'request_id_required' });
+      if (!['/ask','/projects'].includes(url.pathname) && !input.request_id) return send(400, { error: 'request_id_required' });
       const mode = input.conversation_mode ?? 'continue';
       if (!['continue', 'new'].includes(mode)) return send(400, { error: 'conversation_mode must be continue or new' });
-      if (input.conversation_url && !/^https:\/\/chatgpt\.com\/c\/[a-zA-Z0-9-]+$/.test(input.conversation_url)) return send(400, { error: 'invalid_conversation_url' });
+      if (input.conversation_url && !conversationUrl(input.conversation_url)) return send(400, { error: 'invalid_conversation_url' });
+      if(input.project_url&&!projectUrl(input.project_url))return send(400,{error:'invalid_project_url'});
+      if(input.conversation_url)input.conversation_url=conversationUrl(input.conversation_url);
+      if(input.project_url)input.project_url=projectUrl(input.project_url);
+      if(input.project_url&&input.conversation_url&&projectForConversation(input.conversation_url)!==input.project_url)return send(400,{error:'project_conversation_mismatch'});
       if (mode === 'new' && input.conversation_url) return send(400, { error: 'new mode cannot specify conversation_url' });
       const timeout = input.timeout_ms ?? 120000;
       if(input.retry_generation !== undefined && typeof input.retry_generation !== 'boolean') return send(400,{error:'retry_generation must be boolean'});
       if(input.retry_generation && url.pathname!=='/recover') return send(400,{error:'retry_generation is only accepted by recover'});
+      if(input.refresh_page!==undefined && typeof input.refresh_page!=='boolean')return send(400,{error:'refresh_page must be boolean'});
+      if(input.refresh_page && (url.pathname!=='/recover'||input.retry_generation))return send(400,{error:'refresh_page requires recover without retry_generation'});
       if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) return send(400, { error: 'timeout_ms must be 1000..600000' });
-      if (busy) return send(409, { error: 'busy' });
+      const waitForSlot=input.wait_for_slot_ms ?? 0;
+      if(!Number.isInteger(waitForSlot)||waitForSlot<0||waitForSlot>15000)return send(400,{error:'wait_for_slot_ms must be 0..15000'});
+      const slotDeadline=Date.now()+waitForSlot;
+      while(busy && Date.now()<slotDeadline)await new Promise(resolve=>setTimeout(resolve,50));
+      if(res.destroyed)return;
+      if (busy) return send(409, { error: 'busy', category:'browser_transport_in_use', retry_after_ms:1000, active:busyState(), request_submitted:false });
       busy = true;
+      active={request_id:id,operation:url.pathname,started_at_ms:Date.now()};
       ownsLock = true;
+      if(url.pathname==='/projects')return send(200,{project:await createProject(bridge,input.name)});
       let record = await read(id);
       if (record && url.pathname === '/ask' && record.question !== input.question) return send(409, { error: 'request_id_conflict' });
-      if (record && url.pathname === '/ask' && ((record.conversation_mode || 'continue') !== mode || (input.conversation_url && input.conversation_url !== record.conversation_url))) return send(409, { error: 'request_context_conflict' });
+      if (record && url.pathname === '/ask' && ((record.conversation_mode || 'continue') !== mode || (input.conversation_url && input.conversation_url !== (record.context_reset?.from_url||record.conversation_url)))) return send(409, { error: 'request_context_conflict' });
       if (url.pathname === '/files') {
         if (!record) return send(404, { error: 'record_not_found' });
         if (!record.generation_complete) return send(409, { error: 'generation_not_complete' });
@@ -112,15 +130,17 @@ export async function createService({ directory = root, bridge: injected } = {})
       }
       if (!record && (typeof input.question !== 'string' || !input.question.trim() || input.question.length > 30000)) return send(400, { error: 'question must be 1..30000 characters' });
       record ||= { request_id: id, conversation_mode: mode, conversation_url: input.conversation_url || (mode === 'continue' ? config.conversation_url : null), context_inherited: mode === 'continue' && !!(input.conversation_url || config.conversation_url), question: input.question, answer: '', status: 'pending', incomplete: true, generation_status: 'not_started', generation_complete: false, user_action: { required: false, kind: 'none', source: 'not_evaluated', certainty: 'unknown' }, files: [], task_complete: null, created_at: new Date().toISOString() };
+      if(input.project_url)record.project_url=projectUrl(input.project_url);
+      record.project_url||=projectForConversation(record.conversation_url)||undefined;
       if (url.pathname === '/recover' && record.before_count === undefined) return send(409, { error: 'Request was never submitted; use a new request_id' });
       try {
         await persist(record);
-        record = url.pathname === '/ask' ? await bridge.ask(record, persist, timeout) : input.retry_generation ? await bridge.retry(record,persist,timeout) : await bridge.recover(record, persist, timeout);
+        record = url.pathname === '/ask' ? await bridge.ask(record, persist, timeout) : input.retry_generation ? await bridge.retry(record,persist,timeout) : await bridge.recover(record, persist, timeout,{refreshPage:input.refresh_page===true});
       } catch (e) { record.status = e.status || 'failed'; record.error = e.message; record.incomplete = true; }
       finally { await persist(record); }
       return send(['completed', 'awaiting_user_input'].includes(record.status) ? 200 : record.status === 'timeout' ? 504 : 503, record);
     } catch (e) { send(500, { error: e.message }); }
-    finally { if (ownsLock) busy = false; }
+    finally { if (ownsLock) {busy = false;active=null;} }
   });
 }
 

@@ -2,6 +2,6 @@
   "name": "chatgpt-web-backend",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "test": "node --test" },
+  "scripts": { "start": "node server.mjs", "chat": "node web-gateway.mjs", "test": "node --test" },
   "dependencies": { "playwright-core": "^1.56.0" }
 }

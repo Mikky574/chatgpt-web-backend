@@ -19,3 +19,9 @@ test('uncertain request blocks new asks and recovery reuses original request ide
  const result=await runTask({...base,operation:'recover',transport:async q=>{assert.equal(q.mode,'recover');assert.equal(q.requestId,pending);return {request_id:q.requestId,conversation_url:'https://chatgpt.com/c/one',status:'completed',generation_complete:true};}});
  assert.equal(result.pending_request_id,null);
 });
+test('known capacity rejection does not leave an imaginary pending submission',async t=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'role-not-sent-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const result=await runTask({directory,operation:'ask',taskId:'one',provider:'other-provider',packet:{task_id:'one',goal:'public'},transport:async()=>({error:'queue_full',request_submitted:false})});
+ assert.equal(result.pending_request_id,null);assert.equal(result.last_result.error,'queue_full');
+ await assert.rejects(runTask({directory,operation:'ask',taskId:'one',provider:'chatgpt-web',packet:{task_id:'one',goal:'public'},transport:async()=>assert.fail()}),/PROVIDER_MISMATCH/);
+});
