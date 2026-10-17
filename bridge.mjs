@@ -304,6 +304,12 @@ export class BrowserBridge {
     if (!record.conversation_url) throw new BridgeError('未保存对话地址，无法安全恢复；请在浏览器确认提问是否提交');
     if(refreshPage&&!record.user_message_id)throw new BridgeError('刷新恢复需要已确认的用户消息ID；提交不确定时不能自动刷新或重发');
     const page = await this.page(record);
+    // A reopened deleted/inaccessible chat has no old message to anchor.
+    // Resolve that transition before checking whether the user bubble survived.
+    if(await this.conversationUnavailable(page,record)){
+      await this.resetConversation(record,persist);
+      return this.ask(record,persist,timeoutMs);
+    }
     if(!record.user_message_id){
       const messages=await this.messages(page);
       const index=findUserMessageIndex(messages,record.submission_text||record.question,record.before_count);
@@ -316,10 +322,6 @@ export class BrowserBridge {
       }
       record.user_message_id=messages[index].message_id;record.submission_confirmed=true;
       await persist(record);
-    }
-    if(await this.conversationUnavailable(page,record)){
-      await this.resetConversation(record,persist);
-      return this.ask(record,persist,timeoutMs);
     }
     if(refreshPage) {
       if(!record.user_message_id)throw new BridgeError('刷新恢复需要已确认的用户消息ID；提交不确定时不能自动刷新或重发');
@@ -342,6 +344,7 @@ export class BrowserBridge {
     return this.wait(page, record, persist, timeoutMs);
   }
   async conversationUnavailable(page,record){
+    if(record?.network?.rate_limit_until>Date.now())return false;
     // Only explicit site error UI, never an assistant statement about another chat.
     const text=await page.locator('[role="alert"]:visible,[role="dialog"]:visible,main:visible').evaluateAll(nodes=>nodes.map(node=>{
       // A healthy chat's history can be huge; inspect error UI, not a clone of every turn.
@@ -349,6 +352,7 @@ export class BrowserBridge {
       const copy=node.cloneNode(true);for(const n of copy.querySelectorAll('[data-message-author-role],[data-markdown-text-style],[data-user-message-bubble],nav,aside'))n.remove();
       return copy.textContent||'';
     }).join('\n'));
+    if(['rate_limited','browser_verification'].includes(classifyPageIssue(text)))return false;
     if(isConversationUnavailable(text))return true;
     // The SPA can discard an inaccessible /c/ route and return to its home without an alert.
     // Confirm the current browser is authenticated before treating that redirect as context loss.

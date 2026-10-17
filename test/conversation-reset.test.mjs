@@ -44,3 +44,23 @@ test('task accepts explicit unavailable-conversation transition and persists its
  const result=await runTask({...base,transport:async q=>({request_id:q.requestId,conversation_url:next,status:'completed',generation_complete:true,context_reset:{from_url:old,to_url:next,reason:'conversation_unavailable',history_transferred:false}})});
  assert.equal(result.conversation_url,next);assert.equal(result.conversation_resets.length,1);assert.equal(result.pending_request_id,null);
 });
+
+test('closed unconfirmed chat reopens original URL then authenticated home redirect rebuilds once',async()=>{
+ const old='https://chatgpt.com/c/removed',next='https://chatgpt.com/c/replacement';let current='',opened=0,replayed=0;
+ const page={url:()=>current,isClosed:()=>false,goto:async url=>{assert.equal(url,old);opened++;current='https://chatgpt.com/';},locator:()=>({first(){return this},waitFor:async()=>{},evaluateAll:async()=>''}),evaluate:async()=>true};
+ const b=new BrowserBridge({},async()=>{});b.requestPages=new Map([['r',{isClosed:()=>true}]]);
+ b.connect=async()=>({contexts:()=>[{pages:()=>[],newPage:async()=>page}]});
+ b.messages=async()=>assert.fail('redirect must be handled before looking for old user message');
+ b.ask=async(r,persist)=>{replayed++;assert.equal(r.question,'current approved question');assert.equal(r.conversation_url,null);assert.equal(r.context_reset.history_transferred,false);current=next;await b.pin(page,r,persist);return r;};
+ const record={request_id:'r',conversation_url:old,question:'current approved question',before_count:0,submit_attempted:true,submission_confirmed:false};
+ await b.recover(record,async()=>{},120000);
+ assert.equal(opened,1);assert.equal(replayed,1);assert.equal(record.conversation_url,next);assert.equal(record.context_reset.from_url,old);
+});
+
+test('home redirect with visible rate limit or active HTTP cooldown does not reset a conversation',async()=>{
+ const b=new BrowserBridge({},async()=>{});let checked=0;
+ const page={url:()=> 'https://chatgpt.com/',locator:()=>({evaluateAll:async()=> 'Too many requests'}),evaluate:async()=>{checked++;return true;}};
+ assert.equal(await b.conversationUnavailable(page,{conversation_url:'https://chatgpt.com/c/old'}),false);
+ assert.equal(await b.conversationUnavailable(page,{network:{rate_limit_until:Date.now()+60000}}),false);
+ assert.equal(checked,0);
+});

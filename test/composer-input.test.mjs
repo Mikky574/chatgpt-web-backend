@@ -33,7 +33,7 @@ test('uncertain new request without URL cannot fall back to default conversation
 });
 
 test('unconfirmed submission recovery stops immediately without waiting or resending',async()=>{
- const bridge=new BrowserBridge({},async()=>{});bridge.page=async()=>({});bridge.messages=async()=>[];
+ const bridge=new BrowserBridge({},async()=>{});bridge.page=async()=>({});bridge.messages=async()=>[];bridge.conversationUnavailable=async()=>false;
  bridge.wait=async()=>assert.fail('must not wait for an unanchored message');
  bridge.ask=async()=>assert.fail('must not resend');
  const record={conversation_url:'https://chatgpt.com/c/original',question:'public',before_count:0,submit_attempted:true,submission_confirmed:false};
