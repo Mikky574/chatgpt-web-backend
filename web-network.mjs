@@ -5,7 +5,7 @@ export function monitorWebTurn(page,record){
  const request=req=>{
   let url;try{url=new URL(req.url());}catch{return;}
   if(url.origin!=='https://chatgpt.com'||req.method()!=='POST'||!/^\/backend-api\/(?:f\/)?conversation(?:\/prepare)?$/.test(url.pathname))return;
-  const body=req.postData()||'',escaped=JSON.stringify(record.question.trim()).slice(1,-1);
+  const body=req.postData()||'',escaped=JSON.stringify((record.submission_text||record.question).trim()).slice(1,-1);
   if(!body.includes(escaped))return;
   const item={path:url.pathname,method:'POST',started_ms:Date.now()-started};requests.set(req,item);record.network.requests.push(item);
  };

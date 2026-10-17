@@ -43,7 +43,7 @@ export async function createJobService({directory=root,runner,maxConcurrency=1,m
       if(result.session_id){job.session_id=result.session_id;job.conversation_url=toRef(result.session_id);}job.answer=result.answer||'';job.usage=result.usage;
       job.generation_complete=result.generation_complete===true;job.status=result.status||(job.generation_complete?'completed':'interrupted');job.generation_status=result.generation_status||(job.generation_complete?'completed':'unknown');
       if(job.status==='completed'&&!job.generation_complete){job.status='interrupted';job.error='INCOMPLETE_WEB_RESULT';}
-      for(const key of ['user_action','retry','refresh','files','error','stage','submission_confirmed','network','context_reset','request_submitted','guidance','blocking_request_id','pending','recovery','composer_diagnostics'])if(result[key]!==undefined)job[key]=result[key];
+      for(const key of ['user_action','retry','refresh','files','error','stage','submission_confirmed','network','context_reset','request_submitted','guidance','blocking_request_id','pending','recovery','composer_diagnostics','input_transform'])if(result[key]!==undefined)job[key]=result[key];
       if(job.generation_complete){delete job.retry;delete job.refresh;delete job.error;}
     }catch(e){job.status=/TIMEOUT|INCOMPLETE|UNCERTAIN/.test(e.message)?'interrupted':'failed';job.error=/^[A-Z_]+$/.test(e.message)?e.message:'EXECUTION_FAILED';job.generation_status='blocked';if(e.result?.error)job.backend_error=e.result.error;}
     finally{

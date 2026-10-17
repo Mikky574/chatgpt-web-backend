@@ -107,6 +107,8 @@ generation_complete=true表示网页回答生成结束，不代表用户整个�
 
 URL自动链接兼容：当前输入框会把URL装饰为带图标的富文本元素，innerText可能在URL前凭空插入换行。输入与用户消息校验已改为按段落/BR读取语义文字并忽略隐藏图标，不去掉正文、不使用前缀匹配。公开合成URL与多段Markdown已在真实网页验证输入匹配、发送确认及完整回答；仍失败时composer_diagnostics仅返回字符数量，不输出草稿正文。
 
+补充实测发现：Markdown的[标签](URL)会被前端自动链接再次转义，导致输入校验通过但发送后用户气泡已变形。现发送前将简单HTTP(S) Markdown链接转成等义纯文本（相同标签/URL只保留URL，自定义标签保留为“标签 — URL”）；原question保留，submission_text用于实际输入/发送确认/恢复，input_transform明确告知调用方。2026-10-17真实三轮测试覆盖纯URL、Markdown链接、自定义链接标签、查询参数/锚点及合成本地路径，全部发送确认并读取完整回答。复杂嵌套链接不保证转换，仍完整匹配而非模糊放行。仅改变格式，不擅自访问地址。/health增加composer_reader及进程启动时reader_build指纹，更新文件但未重启时指纹不变；排查输入失败可仅提供指纹、composer_diagnostics长度与首差异索引，无需发送正文。
+
 输入阶段失败：filling_composer提示文本不一致时，不能据此判断会话失效。富文本innerText可能引入额外空行，校验仅归一化CRLF、连续空行及NBSP，仍完整比对文字；发送意图单独保存submit_attempted。未执行发送的输入失败返回request_submitted=false，不再占用未完成对话保护。旧版此阶段遗留记录recover一次可识别为未发送。新会话没有实际URL时禁止回退默认对话恢复，避免串上下文。该路径以回归测试验证，目标环境具体编辑器差异仍需实测。
 
 直接调用8787/ask且省略conversation_mode会续用默认对话。同对话存在未完成且可能已经提交的旧轮次时返回409 unresolved_request；本次输入未发送。响应包含request_submitted=false、pending状态、answer_chars、原错误及recovery命令。先GET /records/<旧ID>，再POST /recover读取原轮次，不用新ID重发旧问题。新问题若确实要独立上下文，明确使用新的request_id及conversation_mode=new，且不传conversation_url；force_new=true是兼容别名，与continue或显式对话URL冲突时拒绝。旧版不支持force_new，可能将它静默忽略，因此迁移时推荐标准conversation_mode字段。新会话不继承旧历史，旧记录仍保留。缺少URL的未确认旧请求不再阻塞明确指定的其他对话。

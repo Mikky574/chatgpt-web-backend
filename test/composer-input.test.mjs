@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {BrowserBridge,normalizedComposerText,findUserMessageIndex,editablePlainText} from '../bridge.mjs';
+import {BrowserBridge,normalizedComposerText,findUserMessageIndex,editablePlainText,browserSubmissionText} from '../bridge.mjs';
+test('Markdown address adaptation preserves destinations and custom labels without weakening exact match',()=>{
+ const url='http://127.0.0.1:9380/v1/api/status';
+ assert.equal(browserSubmissionText(`[${url}](${url})`),url);
+ assert.equal(browserSubmissionText('[示例](https://example.test/a?x=1&y=2)'),'示例 — https://example.test/a?x=1&y=2');
+ assert.equal(browserSubmissionText('C:/Users/demo/test.txt'), 'C:/Users/demo/test.txt');
+ assert.equal(findUserMessageIndex([{role:'user',text:url+' changed'}],url),-1);
+});
 test('semantic composer reader retains inline URL text and paragraphs without icon layout breaks',()=>{
  const text=value=>({nodeType:3,nodeValue:value});
  const element=(tag,children=[],hidden=false)=>({nodeType:1,tagName:tag,childNodes:children,getAttribute:key=>key==='aria-hidden'&&hidden?'true':null});

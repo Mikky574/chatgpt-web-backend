@@ -3,12 +3,15 @@ import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+import {createHash} from 'node:crypto';
 import { BrowserBridge } from './bridge.mjs';
 import {conversationUrl,projectUrl,projectForConversation} from './conversation-url.mjs';
 import {listProjects,createProject} from './web-projects.mjs';
 import {withGuidance} from './error-guidance.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+// Snapshot at process load, not at health-request time: detects code updated without restart.
+const readerBuild=createHash('sha256').update(await readFile(new URL('./bridge.mjs',import.meta.url))).digest('hex').slice(0,16);
 const validId = id => typeof id === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(id);
 async function atomicJson(file, value) {
   const temporary = file + '.tmp';
@@ -49,7 +52,7 @@ export async function createService({ directory = root, bridge: injected } = {})
     if (!/^127\.0\.0\.1(?::\d+)?$/.test(req.headers.host || '')) return send(403, { error: 'Use 127.0.0.1' });
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
-      if (req.method === 'GET' && url.pathname === '/health') return send(200, { service: 'chatgpt-web-backend', busy, active:busyState() });
+      if (req.method === 'GET' && url.pathname === '/health') return send(200, { service: 'chatgpt-web-backend', busy, active:busyState(),reader_build:readerBuild,composer_reader:'semantic-dom-v1' });
       if (req.method === 'GET' && url.pathname === '/status') return send(200, { ...await bridge.status(), busy, active:busyState() });
       if(req.method==='GET'&&url.pathname==='/projects')return send(200,{projects:await listProjects(bridge)});
       const recordMatch = url.pathname.match(/^\/records\/([a-zA-Z0-9_-]{1,80})$/);

@@ -24,6 +24,10 @@ export function editablePlainText(root){
  };
  return [...root.childNodes].map(walk).join('');
 }
+export function browserSubmissionText(value){
+ // Keep destinations and labels, avoid editor auto-link serializing Markdown twice.
+ return value.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s()]+)\)/g,(_,label,url)=>label===url?url:`${label} — ${url}`);
+}
 export function classifyGenerationFailure(text) {
   if (/cloudflare_challenge|cf-chl-|verify you are human|验证您是真人|人机验证/i.test(text)) return 'browser_verification';
   if (/too many requests|rate limit|达到.*限额|请求过多/i.test(text)) return 'rate_limited';
@@ -216,6 +220,8 @@ export class BrowserBridge {
     }
   }
   async ask(record, persist, timeoutMs) {
+    record.submission_text??=browserSubmissionText(record.question);
+    if(record.submission_text!==record.question)record.input_transform={kind:'markdown_links_to_plain_text',original_preserved:true};
     record.stage='locating_conversation';await persist(record);
     let page = await this.page(record);
     if(await this.conversationUnavailable(page,record)){
@@ -242,11 +248,12 @@ export class BrowserBridge {
     record.status = 'submitting';
     await persist(record);
     record.stage='filling_composer';await persist(record);
-    await input.fill(record.question);
+    await input.fill(record.submission_text);
     let actual='';const fillDeadline=Date.now()+2000;
-    do{actual=await input.evaluate(editablePlainText);if(normalizedComposerText(actual)===normalizedComposerText(record.question))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
-    if(normalizedComposerText(actual)!==normalizedComposerText(record.question)){
-      record.request_submitted=false;record.submission_confirmed=false;record.composer_diagnostics={expected_chars:record.question.length,actual_chars:actual.length,normalization:'semantic_blocks_without_hidden_inline_icons'};
+    do{actual=await input.evaluate(editablePlainText);if(normalizedComposerText(actual)===normalizedComposerText(record.submission_text))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
+    if(normalizedComposerText(actual)!==normalizedComposerText(record.submission_text)){
+      const expectedNormalized=normalizedComposerText(record.submission_text),actualNormalized=normalizedComposerText(actual);let mismatch=0;while(mismatch<Math.min(expectedNormalized.length,actualNormalized.length)&&expectedNormalized[mismatch]===actualNormalized[mismatch])mismatch++;
+      record.request_submitted=false;record.submission_confirmed=false;record.composer_diagnostics={expected_chars:record.question.length,actual_chars:actual.length,expected_normalized_chars:expectedNormalized.length,actual_normalized_chars:actualNormalized.length,first_mismatch_index:mismatch,expected_at_end:mismatch===expectedNormalized.length,actual_at_end:mismatch===actualNormalized.length,normalization:'semantic_blocks_without_hidden_inline_icons'};
       throw new BridgeError('输入框文本未与本次问题一致，停止提交');
     }
     record.stage='submitting';await persist(record);
@@ -272,7 +279,7 @@ export class BrowserBridge {
     while(Date.now()<deadline) {
       await this.pin(page,record,persist);
       const messages=await this.messages(page);
-      const index=findUserMessageIndex(messages,record.question,record.before_count);
+      const index=findUserMessageIndex(messages,record.submission_text||record.question,record.before_count);
       if(index>=0) {
         record.user_message_id=messages[index].message_id;
         record.submission_confirmed=true;
@@ -351,7 +358,7 @@ export class BrowserBridge {
     if ((record.generation_retry_count || 0) >= 2) throw new BridgeError('已达到原问题的两次生成重试上限');
     const page = await this.page(record);
     const messages = await this.messages(page);
-    const index = messages.findIndex(m=>m.role==='user' && m.message_id===record.user_message_id && m.text.trim()===record.question.trim());
+    const index = messages.findIndex(m=>m.role==='user' && m.message_id===record.user_message_id && normalizedComposerText(m.text)===normalizedComposerText(record.submission_text||record.question));
     if(index<0 || messages.slice(index+1).some(m=>m.role==='user')) throw new BridgeError('原问题未加载或后续已有新问题，不能安全重试');
     const alerts=await page.locator('[role="alert"]:visible').evaluateAll(nodes=>nodes.map(n=>n.innerText).join('\n'));
     const alertKind=classifyGenerationFailure(alerts);
@@ -396,7 +403,7 @@ export class BrowserBridge {
       const anchoredIndex = record.user_message_id ? messages.findIndex(m => m.role === 'user' && m.message_id === record.user_message_id) : -1;
       if (record.user_message_id && anchoredIndex < 0) throw new BridgeError('当前页面未加载本次用户消息，无法可靠恢复');
       const appended = messages.slice(anchoredIndex >= 0 ? anchoredIndex : record.before_count);
-      const userIndex = findUserMessageIndex(appended, record.question);
+      const userIndex = findUserMessageIndex(appended, record.submission_text||record.question);
       if (userIndex >= 0) {
         record.user_message_id ||= appended[userIndex].message_id;
         const failureUI = await page.locator('main:visible').last().evaluateAll((nodes,id)=>{
