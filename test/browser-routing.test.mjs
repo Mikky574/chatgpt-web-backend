@@ -31,3 +31,21 @@ test('refresh restores the same submitted request without asking again and prote
  draft=true;await assert.rejects(b.recover(r,async()=>{},1000,{refreshPage:true}),/草稿/);assert.equal(refreshed,1);
  await assert.rejects(b.recover({conversation_url:r.conversation_url},async()=>{},1000,{refreshPage:true}),/用户消息ID/);
 });
+
+test('two new tasks never reuse an owned blank-looking home page',async()=>{
+ const b=new BrowserBridge({},async()=>{}),home=page('https://chatgpt.com/'),dedicated=page('https://chatgpt.com/');let created=0;
+ home.locator=()=>({first(){return this},waitFor:async()=>{},evaluateAll:async()=>true});
+ dedicated.goto=async()=>{created++;};b.conversationUnavailable=async()=>false;
+ b.connect=async()=>({contexts:()=>[{pages:()=>[home],newPage:async()=>dedicated}]});
+ assert.equal(await b.page({request_id:'A',conversation_mode:'new'}),home);
+ assert.equal(await b.page({request_id:'B',conversation_mode:'new'}),dedicated);
+ assert.equal(created,1);assert.notEqual(b.requestPages.get('A'),b.requestPages.get('B'));
+});
+
+test('navigation between routing and submit cannot send into another conversation',async()=>{
+ const b=new BrowserBridge({},async()=>{});let clicked=0;
+ const wrong={url:()=> 'https://chatgpt.com/c/A',locator:()=>({count:async()=>1,waitFor:async()=>{},click:async()=>{clicked++;}})};
+ await assert.rejects(b.submit(wrong,{}, {conversation_url:'https://chatgpt.com/c/B'},async()=>{}),/发送前目标对话/);
+ await assert.rejects(b.submit(wrong,{}, {conversation_mode:'new'},async()=>{}),/新任务页面/);
+ assert.equal(clicked,0);
+});

@@ -135,6 +135,8 @@ export class BrowserBridge {
       // A new conversation may reuse an empty home tab, never an existing chat or draft.
       if(fresh&&!url){
         for(const candidate of context.pages()){
+          // A blank-looking SPA may still belong to another in-flight/failed task.
+          if([...this.requestPages.entries()].some(([id,p])=>id!==record.request_id&&p===candidate)||[...this.conversationPages.values()].includes(candidate))continue;
           if(record.project_url?projectUrl(candidate.url())!==entry:!/^https:\/\/chatgpt\.com\/?(?:\?|$)/.test(candidate.url()))continue;
           const safe=await candidate.locator('main').evaluateAll(nodes=>nodes.length===1&&!nodes[0].querySelector('[data-user-message-bubble], [data-message-author-role]')&&![...nodes[0].querySelectorAll('[contenteditable="true"]')].some(n=>(n.innerText ?? n.textContent ?? '').trim()));
           if(safe&&!await this.conversationUnavailable(candidate)){page=candidate;break;}
@@ -251,6 +253,7 @@ export class BrowserBridge {
     record.status = 'submitting';
     await persist(record);
     record.stage='filling_composer';await persist(record);
+    this.assertSubmissionTarget(page,record);
     await input.fill(record.submission_text);
     let actual='';const fillDeadline=Date.now()+2000;
     do{actual=await input.evaluate(editablePlainText);if(normalizedComposerText(actual)===normalizedComposerText(record.submission_text))break;await new Promise(resolve=>setTimeout(resolve,100));}while(Date.now()<fillDeadline);
@@ -271,6 +274,7 @@ export class BrowserBridge {
     }finally{stopMonitoring();}
   }
   async submit(page,input,record,persist) {
+    this.assertSubmissionTarget(page,record);
     const send=page.locator('button[data-testid="send-button"]:visible, button[aria-label="发送"]:visible, button[aria-label="Send prompt"]:visible, button[aria-label="Send message"]:visible');
     // Prefer the explicit control; Enter can insert a newline depending on composer settings.
     if(await send.count()===1) {
@@ -294,6 +298,18 @@ export class BrowserBridge {
     record.submission_confirmed=false;
     record.generation_status='submission_unconfirmed';
     throw new BridgeError('未观察到本次用户消息：发送尚未确认。请检查网页输入框及提示；保留原请求ID，勿自动重发');
+  }
+  assertSubmissionTarget(page,record){
+    const reject=message=>{record.request_submitted=false;record.submission_confirmed=false;throw new BridgeError(message);};
+    const target=record.conversation_url||((record.conversation_mode!=='new'&&!record.context_reset_pending)?this.config.conversation_url:null);
+    if(!target&&record.conversation_mode!=='new'&&!record.context_reset_pending)return;
+    const current=page.url().split('?')[0];
+    if(target){
+      if(conversationUrl(current)!==conversationUrl(target))reject('发送前目标对话发生变化，已停止；不会向其他对话发送');
+    }else if(record.conversation_mode==='new'||record.context_reset_pending){
+      const expected=record.project_url?projectUrl(record.project_url):this.config.entry_url||'https://chatgpt.com/';
+      if(conversationUrl(current)||(record.project_url?projectUrl(current)!==expected:current.replace(/\/$/,'')!==expected.replace(/\/$/,'')))reject('新任务页面已进入其他对话，已停止发送；不会复用其他任务的上下文');
+    }
   }
   async recover(record, persist, timeoutMs, {refreshPage=false} = {}) {
     if(record.request_submitted===false||(['locating_conversation','filling_composer'].includes(record.stage)&&!record.submit_attempted&&!record.submission_confirmed&&!record.user_message_id)){
