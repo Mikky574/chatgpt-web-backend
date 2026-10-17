@@ -169,10 +169,11 @@ export class BrowserBridge {
       return { connected: true, conversation_url: this.config.conversation_url, pages: browser.contexts().flatMap(c => c.pages()).filter(p => p.url().startsWith('https://chatgpt.com/')).map(p => ({ url: p.url() })) };
     } catch (e) { return { connected: false, error: e.message, conversation_url: this.config.conversation_url }; }
   }
-  async messages(page) {
+  async messages(page,anchorId=null) {
     const current = page.locator('main:visible').last().locator('[data-user-message-bubble], [data-markdown-text-style="assistant-message"]');
     if (await current.count()) {
-      return current.evaluateAll((nodes, pattern) => {
+      return current.evaluateAll((nodes, {pattern,anchorId}) => {
+        if(anchorId){const index=nodes.findIndex(n=>n.hasAttribute('data-user-message-bubble')&&(n.closest('[data-chatgpt-search-message-ids]')?.getAttribute('data-chatgpt-search-message-ids')||'').split(' ').includes(anchorId));if(index<0)return [];nodes=nodes.slice(index);}
         const toggle = new RegExp(pattern, 'i');
         const text = node => {
           if(node.hasAttribute('data-user-message-bubble')){
@@ -198,7 +199,7 @@ export class BrowserBridge {
           complete: n.closest('[data-talvt-turn-state]')?.getAttribute('data-talvt-turn-state') === 'complete',
           message_id: n.closest('[data-chatgpt-search-message-ids]')?.getAttribute('data-chatgpt-search-message-ids')?.split(' ')[0] || null
         }));
-      }, COLLAPSE_CONTROL.source);
+      }, {pattern:COLLAPSE_CONTROL.source,anchorId});
     }
     return page.locator('[data-message-author-role]').evaluateAll(nodes => nodes.map(n => ({ role: n.getAttribute('data-message-author-role'), text: n.innerText, complete: false })));
   }
@@ -327,6 +328,8 @@ export class BrowserBridge {
   async conversationUnavailable(page,record){
     // Only explicit site error UI, never an assistant statement about another chat.
     const text=await page.locator('[role="alert"]:visible,[role="dialog"]:visible,main:visible').evaluateAll(nodes=>nodes.map(node=>{
+      // A healthy chat's history can be huge; inspect error UI, not a clone of every turn.
+      if(node.tagName==='MAIN'&&node.querySelector('[data-user-message-bubble],[data-message-author-role]'))return '';
       const copy=node.cloneNode(true);for(const n of copy.querySelectorAll('[data-message-author-role],[data-markdown-text-style],[data-user-message-bubble],nav,aside'))n.remove();
       return copy.textContent||'';
     }).join('\n'));
@@ -377,7 +380,7 @@ export class BrowserBridge {
   }
   async wait(page, record, persist, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
-    let previous = '', stable = 0;
+    let previous = '', stable = 0,lastSaved='',lastSaveAt=0;
     while (Date.now() < deadline) {
       if(page.isClosed?.())page=await this.page(record);
       if(await this.conversationUnavailable(page,record)){await this.resetConversation(record,persist);return this.ask(record,persist,Math.max(1000,deadline-Date.now()));}
@@ -399,7 +402,7 @@ export class BrowserBridge {
         record.user_action = { required: true, kind: 'ui_confirmation', prompt: dialogs.map(d => d.text).join('\n'), dialogs, source: 'visible_dialog', certainty: 'observed' };
         return record;
       }
-      const messages = await this.messages(page);
+      const messages = await this.messages(page,record.user_message_id);
       const anchoredIndex = record.user_message_id ? messages.findIndex(m => m.role === 'user' && m.message_id === record.user_message_id) : -1;
       if (record.user_message_id && anchoredIndex < 0) throw new BridgeError('当前页面未加载本次用户消息，无法可靠恢复');
       const appended = messages.slice(anchoredIndex >= 0 ? anchoredIndex : record.before_count);
@@ -453,7 +456,8 @@ export class BrowserBridge {
           return record;
         }
       }
-      await persist(record);
+      const snapshot=JSON.stringify([record.answer,record.stage,record.generation_status,record.user_message_id]);
+      if(snapshot!==lastSaved||Date.now()-lastSaveAt>=5000){await persist(record);lastSaved=snapshot;lastSaveAt=Date.now();}
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     record.status = 'timeout'; record.incomplete = true;

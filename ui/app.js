@@ -30,7 +30,7 @@ async function watch(chat){
    if(job.request_submitted===false){chat.pending=null;chat.status='本轮未发送：'+(job.error||'请求被拒绝')+'。可修改后再次发送。';chat.draft=job.question||'';if(chat.messages.at(-1)?.role==='user'&&chat.messages.at(-1)?.text===job.question)chat.messages.pop();if(current()?.id===chat.id)$('input').value=chat.draft;update(chat);break;}
    if(job.conversation_url)chat.reference=job.conversation_url;
    if(job.context_reset)chat.contextReset=job.context_reset;
-   if(['queued','running'].includes(job.status)){const stages={locating_conversation:'定位网页会话',filling_composer:'填写输入框',submitting:'点击发送',submission_confirmed:'发送已确认',waiting_answer:'等待网页回答',reading_answer:'读取网页回答'};chat.status=job.status==='queued'?`排队中${job.queue_position?' · 等待位置 '+job.queue_position:''}`:(stages[job.stage]||'网页正在处理…');update(chat);await new Promise(r=>setTimeout(r,900));continue;}
+   if(['queued','running'].includes(job.status)){const stages={locating_conversation:'定位网页会话',filling_composer:'填写输入框',submitting:'点击发送',submission_confirmed:'发送已确认',waiting_answer:'等待网页回答',reading_answer:'读取网页回答'};const status=job.status==='queued'?`排队中${job.queue_position?' · 等待位置 '+job.queue_position:''}`:(stages[job.stage]||'网页正在处理…');if(chat.status!==status){chat.status=status;update(chat);}await new Promise(r=>setTimeout(r,1500));continue;}
    if(['completed','awaiting_user_input'].includes(job.status)&&job.generation_complete){if(job.context_reset)chat.messages.push({role:'notice',text:'原对话不可访问，已新建对话。旧上下文未迁移，本轮只发送了当前问题。'});chat.messages.push({role:'assistant',text:job.answer});chat.pending=null;chat.status=job.user_action?.required?'网页已回复，可能需要你确认或补充':'已完成 · 来自 ChatGPT 网页';if(current()?.id===chat.id)setTimeout(()=>$('input').focus(),0);}
    else{chat.retry=job.retry;chat.refresh=job.refresh;chat.status=`${job.status==='interrupted'?'执行中断，结果不确定，请核对后处理':'网页尚未完成'} · ${job.error||job.status}。保留原请求，不自动重发。`;}
    update(chat);break;
@@ -61,7 +61,7 @@ async function restoreHistory(){
  const chat={id:taskId,projectId:last.project_id,title:turns[0].question.slice(0,24),messages:[],reference:last.conversation_url,pending:null,status:'已从本机历史恢复'};
  for(const j of turns){chat.messages.push({role:'user',text:j.question});if(j.context_reset)chat.messages.push({role:'notice',text:'该轮已重建官网对话，旧上下文未迁移。'});if(j.answer)chat.messages.push({role:'assistant',text:j.answer});}
  if(!last.generation_complete&&last.request_submitted!==false)chat.pending={id:last.request_id};if(last.request_submitted===false)chat.status='上一轮未发送，可重新提问';state.chats.push(chat);if(chat.pending)void watch(chat);
- }save();render();}catch{$('notice').textContent='历史暂未同步，当前浏览器记录仍保留。';}
+ }save();render();}catch{$('notice').textContent='历史暂未同步，当前浏览器记录仍保留。';const retry=document.createElement('button');retry.textContent='重试加载历史';retry.onclick=()=>restoreHistory();$('notice').append(retry);}
 }
 void restoreHistory();
 async function loadProjects(){try{const {projects}=await api('/projects');for(const project of projects){const old=state.projects.find(p=>p.id===project.id);if(old)Object.assign(old,project);else state.projects.push(project);}save();render();}catch{$('notice').textContent='官网项目列表暂不可用，普通对话仍可使用。';}}

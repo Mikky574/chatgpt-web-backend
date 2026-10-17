@@ -26,11 +26,13 @@ export async function createJobService({directory=root,runner,maxConcurrency=1,m
       void execute(job).catch(()=>{});
     }
   }
+  const historyIndex=new Map();let historySkipped=0;
+  const indexHistory=job=>{if(!job.project_id||!job.task_id)return;const entry={};for(const key of ['request_id','project_id','project_name','project_url','task_id','question','answer','status','generation_complete','conversation_url','created_at','request_submitted','context_reset'])entry[key]=job[key];historyIndex.set(job.request_id,entry);if(historyIndex.size>500){const oldest=[...historyIndex.values()].sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''))[0];historyIndex.delete(oldest.request_id);}};
   const file=id=>path.join(store,id+'.json');
-  const save=async job=>{const temp=file(job.request_id)+'.tmp';await writeFile(temp,JSON.stringify(job,null,2));await rename(temp,file(job.request_id));};
+  const save=async job=>{const temp=file(job.request_id)+'.tmp';await writeFile(temp,JSON.stringify(job,null,2));await rename(temp,file(job.request_id));indexHistory(job);};
   const read=async id=>{try{return JSON.parse(await readFile(file(id),'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}};
   for(const name of await readdir(store)) {
-    if(!name.endsWith('.json'))continue;const job=await read(name.slice(0,-5));
+    if(!name.endsWith('.json'))continue;let job;try{job=await read(name.slice(0,-5));}catch{historySkipped++;continue;}if(job)indexHistory(job);
     if(job?.status==='running'||job?.status==='queued'){job.status='interrupted';job.error='SERVICE_RESTART_RESULT_UNCERTAIN';await save(job);}
   }
   function notify(job,event){for(const response of listeners.get(job.request_id)||[])response.write(`data: ${JSON.stringify(event)}\n\n`);}
@@ -65,8 +67,7 @@ export async function createJobService({directory=root,runner,maxConcurrency=1,m
       if(req.method==='GET'&&url.pathname==='/app.js'){res.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});res.end(await readFile(path.join(root,'ui','app.js')));return;}
       if(req.method==='GET'&&url.pathname==='/health')return send(200,{service:'chatgpt-web-controller',provider,cdp_required:true,active_jobs:active.size,queued_jobs:queue.size,max_concurrency:maxConcurrency,max_queue:maxQueue});
       if(req.method==='GET'&&url.pathname==='/history'){
-        const jobs=[];for(const name of await readdir(store)){if(!name.endsWith('.json'))continue;const job=await read(name.slice(0,-5));if(job?.project_id&&job?.task_id)jobs.push(job);}
-        jobs.sort((a,b)=>a.created_at.localeCompare(b.created_at));return send(200,{jobs:jobs.slice(-500)});
+        const jobs=[...historyIndex.values()].sort((a,b)=>(a.created_at||'').localeCompare(b.created_at||''));return send(200,{jobs,skipped_records:historySkipped});
       }
       const match=url.pathname.match(/^\/jobs\/([A-Za-z0-9_-]{1,80})(\/events)?$/);
       if(req.method==='GET'&&match){

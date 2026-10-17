@@ -48,6 +48,14 @@ test('aria-hidden SVG without innerText does not crash either live reader or hel
  assert.equal(result[0].text,'完整合成回答');assert.equal(result[0].role,'assistant');
 });
 
+test('anchored reader does not materialize earlier historical answers',async()=>{
+ const old={hasAttribute:()=>false, get innerText(){assert.fail('old history text must not be read');}};
+ const current={hasAttribute:name=>name==='data-user-message-bubble',closest:()=>({getAttribute:()=> 'current-u'}),cloneNode:()=>({querySelectorAll:()=>[],textContent:'current question'}),querySelectorAll:()=>[],innerText:'current question'};
+ const answer={hasAttribute:()=>false,closest:()=>null,querySelectorAll:()=>[],innerText:'current answer'};
+ const locator={last(){return this},locator(){return this},count:async()=>3,evaluateAll:async(fn,arg)=>fn([old,current,answer],arg)};
+ const b=new BrowserBridge({},async()=>{});const messages=await b.messages({locator:()=>locator},'current-u');assert.equal(messages.length,2);assert.equal(messages[1].text,'current answer');
+});
+
 test('strict matching accepts the filtered bubble and rejects shared-prefix prompts', () => {
   const bubble = new FakeBubble(QUESTION, [new FakeButton('收起')]);
   const messages = [

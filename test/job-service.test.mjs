@@ -82,3 +82,10 @@ test('project metadata stays local, official project URL reaches runner and hist
  assert.equal((await f.post({...body,project_id:'changed'})).status,409);
  assert.equal((await f.post({...body,request_id:'mismatch',conversation_url:'https://chatgpt.com/c/ordinary'})).status,400);
 });
+
+test('history skips a damaged record and does not rescan files on every request',async t=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'history-index-'));const store=path.join(directory,'records/web-jobs');await mkdir(store,{recursive:true});
+ await writeFile(path.join(store,'bad.json'),'{broken');await writeFile(path.join(store,'good.json'),JSON.stringify({request_id:'good',status:'completed',project_id:'p',task_id:'t',question:'public',answer:'ok',created_at:'2026-01-01',events:[{text:'large event duplicate'}]}));
+ const f=await fixture(t,async()=>{},directory);const first=await(await fetch(f.base+'/history')).json();assert.equal(first.jobs.length,1);assert.equal(first.skipped_records,1);assert.equal(first.jobs[0].events,undefined);
+ await writeFile(path.join(store,'good.json'),'{broken after startup');const second=await(await fetch(f.base+'/history')).json();assert.equal(second.jobs[0].answer,'ok');
+});
